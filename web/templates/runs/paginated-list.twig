@@ -1,0 +1,82 @@
+{# Template fragment for outputting a list of runs #}
+{% import 'macros/helpers.twig' as helpers %}
+<div class="row-fluid">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                {% if show_compare_link %}
+                <th>&nbsp;</th>
+                {% endif %}
+                <th>
+                    方法
+                </th>
+                <th>请求地址</th>
+                <th>
+                    {{ helpers.sort_link('请求时间', base_url, 'time', paging, search) }}
+                </th>
+                <th class="right">
+                    <span class="tip" title="执行时间">
+                        {{ helpers.sort_link('执行时间', base_url, 'wt', paging, search) }}
+                    </span>
+                </th>
+                <th class="right">
+                    <span class="tip" title="CPU时间">
+                        {{ helpers.sort_link('CPU时间', base_url, 'cpu', paging, search) }}
+                    </span>
+                </th>
+                <th class="right">
+                    <span class="tip" title="内存占用">
+                        {{ helpers.sort_link('内存占用', base_url, 'mu', paging, search) }}
+                    </span>
+                </th>
+                <th class="right">
+                    <span class="tip" title="内存峰值">
+                        {{ helpers.sort_link('内存峰值', base_url, 'pmu', paging, search) }}
+                    </span>
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for result in runs %}
+        <tr>
+            {% if show_compare_link %}
+            <td>
+                <a class="btn btn-small" href="{{ path_for('run.compare', {}, {base: base_run.id|trim, head: result.id|trim}) }}">
+                    对比
+                </a>
+            </td>
+            {% endif %}
+            <td>
+              <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
+                {{ result.meta('SERVER.REQUEST_METHOD') }}
+              </a>
+            </td>
+            <td>
+                {% set addr = result.meta.url %}
+                {{ helpers.tip_link(
+                    addr,
+                    50,
+                    'url.view',
+                    {'url': result.meta.simple_url}
+                ) }}
+            </td>
+            <td>
+              <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
+                {{ result.meta('request_date')|date(date_format) }}
+              </a>
+            </td>
+            <td class="right">{{ attribute(result.profile, 'main()').wt |as_time }}</td>
+            <td class="right">{{ attribute(result.profile, 'main()').cpu |as_time }}</td>
+            <td class="right">{{ attribute(result.profile, 'main()').mu |as_bytes }}</td>
+            <td class="right">{{ attribute(result.profile, 'main()').pmu |as_bytes }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" class="no-results">
+                你的搜索条件没有匹配的结果，改变搜索条件试试。
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>

@@ -1,0 +1,72 @@
+{% extends 'layout/base.twig' %}
+{% import 'macros/helpers.twig' as helpers %}
+
+{% block title %}
+运行对比 - {{ base_run.meta('url') }}
+{% endblock %}
+
+{% block content %}
+<h3>对比运行：{{ base_run.meta.simple_url }}</h3>
+
+{% if not base_run %}
+<div class="row-fluid row-spaced">
+    <p class="alert alert-error">
+        您必须选择基本运行才能开始比较。
+    </p>
+</div>
+{% else %}
+    <div class="row-fluid row-spaced">
+        <span class="badge compare-base">
+            基础: {{ base_run.meta.simple_url }} - {{ base_run.date|date(date_format) }}
+        </span>
+        <span class="compare-elipsis">&hellip;</span>
+
+        {% if head_run %}
+        <span class="badge compare-head">
+            新: {{ _run.meta.simple_url }} - {{ head_run.date|date(date_format) }}
+        </span>
+        <a class="btn btn-mini" href="{{ path_for('run.compare', {}, {'base': base_run.id|trim }) }}">修改</a>
+        <a class="btn btn-mini" href="{{ path_for('run.compare', {}, {'base': head_run.id|trim, 'head': base_run.id|trim }) }}">交换</a>
+        {% else %}
+        <span class="badge">选择下面的运行</span>
+        {% endif %}
+    </div>
+
+    {% if candidates|length %}
+    <div class="row-fluid row-spaced">
+        <h4>其他运行与 {{ base_run.meta('url') }} 对比</h4>
+        {% include 'runs/paginated-list.twig' with {runs: candidates.results, show_compare_link: true} %}
+        {{ helpers.pagination('run.compare', pagination, url_params) }}
+    </div>
+    {% endif %}
+
+    {% if comparison %}
+        <div class="row-fluid row-spaced">
+        {% include 'runs/compare-details.twig' %}
+        </div>
+    {% endif %}
+
+{% endif %}
+
+{% endblock %}
+
+
+{% block jsfoot %}
+<script>
+$(document).ready(function () {
+    var rows = $('#filter-table tbody tr');
+    $('#function-filter').on('keyup', function(e) {
+        var value = $(this).val();
+        rows.each(function (i, el) {
+            var row = $(el);
+            var name = row.find('.text a').text();
+            if (name.indexOf(value) === -1) {
+                row.hide();
+            } else {
+                row.show();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

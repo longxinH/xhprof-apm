@@ -1,0 +1,56 @@
+{% extends 'layout/base.twig' %}
+{% import 'macros/helpers.twig' as helpers %}
+
+{% block title %}
+    {{ title }}
+{% endblock %}
+
+{% block content %}
+<h3>{{ title }}</h3>
+
+{% if runs|length or has_search %}
+    <div class="searchbar clearfix">
+        <a href="#" class="pull-right btn btn-small search-expand" title="Show search form">
+            <i class="icon-search"></i> 搜索
+        </a>
+
+        <form action="{{ path_for('home') }}" method="get" class="row hide search-form form-inline">
+            <a href="#" class="search-collapse close" title="Hide search form">&times;</a>
+            <div class="control-group span4">
+                <label class="control-label" for="start_date">时间范围</label>
+                <div class="controls">
+                    <input type="text" data-date-format="yyyy-mm-dd" id="date_start" name="date_start" class="datepicker span2" value="{{ search.date_start }}">
+                    <input type="text" id="date_end" data-date-format="yyyy-mm-dd" name="date_end" class="datepicker span2" value="{{ search.date_end }}">
+                </div>
+            </div>
+            <div class="control-group span4">
+                <label class="control-label" for="url">请求地址</label>
+                <div class="controls">
+                    <input type="text" id="url" name="url" value="{{ search.url }}">
+                    <input type="hidden" name="sort" value="{{ paging.sort }}">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">搜索</button>
+            </div>
+        </form>
+    </div>
+{% endif %}
+
+{# No run data, and no search, must be just getting started #}
+{% if not runs|length and not has_search %}
+    <div class="hero-unit">
+        <h3>没有分析数据</h3>
+        <p>你需要收集一些分析数据才能开始使用Xhprof - APM</p>
+    </div>
+{% endif %}
+
+{% if runs|length or has_search %}
+    {% include 'runs/paginated-list.twig' %}
+{% endif %}
+
+{% if runs|length %}
+    {{ helpers.pagination('home', paging, search) }}
+{% endif %}
+
+{% endblock %}

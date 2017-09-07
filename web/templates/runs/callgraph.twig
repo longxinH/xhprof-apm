@@ -1,0 +1,137 @@
+{% extends 'layout/base.twig' %}
+
+{% block title %}
+{{ title }} - {{ profile.meta.url }} - {{ profile.meta('SERVER.REQUEST_TIME')|date(date_format) }}
+{% endblock %}
+
+{% block content %}
+<div class="row-fluid">
+    <a class="back-link" href="{{ path_for('run.view', {}, {'id': profile.id|trim}) }}">&laquo; Back to run</a>
+    <h3>调用图：{{ profile.meta.url }}</h3>
+    <h5>{{ profile.meta('SERVER.REQUEST_TIME')|date(date_format) }}</h5>
+</div>
+
+<div class="row-fluid">
+    <div class="pull-right relative-box">
+        <a href="#" id="customize-graph" class="btn btn-default btn-small">
+            筛选
+        </a>
+        <div class="popover left" id="metric-popover">
+            <div class="arrow"></div>
+            <div class="popover-content">
+                <h4>标准</h4>
+                <div class="control-group">
+                    <select name="metric">
+                        <option value="ct">调用次数</option>
+                        <option value="wt" selected>执行时间</option>
+                        <option value="cpu">CPU时间</option>
+                        <option value="mu">内存使用</option>
+                        <option value="ewt">自身执行时间</option>
+                        <option value="ecpu">自身CPU时间</option>
+                        <option value="emu">自身内存使用</option>
+                        <option value="epmu">自身内存峰值</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>
+                        临界值
+                        <input type="number" name="threshold" value="0.001" step="0.001">
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary">应用</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <p class="alert alert-info pull-left">
+        执行占比 <span id="threshold-display"></span>%或更少的方法会从调用图中忽略掉</p>
+
+</div>
+
+
+<div class="row-fluid">
+    <div id="loading">加载中..</div>
+    <div class="chart-container" id="callgraph-image">
+    </div>
+
+    <div id="callgraph-details">
+        <span class="button-close pull-right">&#10799;</span>
+        <div class="details-content">
+        </div>
+    </div>
+
+
+    <p>由于受限于xhprof如何收集数据，调用图不能100％反映实际方法调用图。</p>
+</div>
+{% endblock %}
+
+{% block jsfoot %}
+<script src="{{ base_url() }}/js/dagre-d3.js"></script>
+<script src="{{ base_url() }}/js/callgraph.js"></script>
+
+<script>
+$(document).ready(function () {
+    var loading = $('#loading');
+    var gear = $('#customize-graph');
+    var select = $('select[name=metric]');
+    var popover = $('#metric-popover');
+    var threshold = $('input[name=threshold]');
+    var thresholdDisplay = $('#threshold-display');
+    var ok = popover.find('.btn');
+
+    gear.on('click', function(e) {
+        popover.toggle();
+        var width = gear.outerWidth();
+        var height = popover.height();
+        var buttonPosition = gear.position();
+        popover.css({
+            right: width + 5,
+            top: 10 + (height / 2) * -1
+        });
+        return false;
+    });
+
+    ok.on('click', function(e) {
+        var metric = select.val();
+        var thresh = threshold.val();
+        popover.hide();
+        loadCallgraph(metric, thresh);
+        return false;
+    });
+
+    loadCallgraph('wt', 0.001);
+});
+
+function updateThreshold(value) {
+    var display = $('#threshold-display');
+    display.text(parseFloat(value) * 100);
+}
+
+function loadCallgraph(metric, threshold) {
+    var url = "{{ path_for('run.callgraph.data', {}, {'id': profile.id|trim}) }}";
+    var baseUrl = "{{ path_for('run.symbol', {}, {'id': profile.id|trim }) }}";
+    var shortUrl = "{{ path_for('run.symbol-short', {}, {'id': profile.id|trim }) }}";
+
+    var params = {
+        metric: metric,
+        threshold: threshold
+    };
+    $.getJSON(url + '&' + $.param(params), function (data) {
+        $('#callgraph-image').empty();
+        $('#loading').hide();
+
+        updateThreshold(threshold);
+
+        Xhgui.callgraph('#callgraph-image', data, {
+            baseUrl: baseUrl,
+            shortUrl: shortUrl,
+            detailView: '#callgraph-details',
+            threshold: threshold,
+            metric: metric
+        });
+    });
+}
+</script>
+{% endblock %}

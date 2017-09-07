@@ -1,0 +1,113 @@
+{% import 'macros/helpers.twig' as helpers %}
+
+<div class="row-fluid">
+    <h3>函数详细</h3>
+    <h4 class="function-name">{{ symbol }}</h4>
+    <table class="table table-hover">
+        <tbody>
+            <tr>
+                <th>调用次数</th>
+                <td>{{ current.ct }}</td>
+            </tr>
+            <tr>
+                <th>自身执行时间</th>
+                <td>{{ current.ewt|as_time }}</td>
+            </tr>
+            <tr>
+                <th>自身CPU时间</th>
+                <td>{{ current.ecpu|as_time }}</td>
+            </tr>
+            <tr>
+                <th>自身内存占用</th>
+                <td>{{ current.emu|as_bytes }}</td>
+            </tr>
+            <tr>
+                <th>自身内存占用峰值</th>
+                <td>{{ current.epmu|as_bytes }}</td>
+            </tr>
+            <tr>
+                <th>包含执行时间</th>
+                <td>{{ helpers.time_and_percent('wt', current, main) }}</td>
+            </tr>
+            <tr>
+                <th>包含CPU时间</th>
+                <td>{{ helpers.time_and_percent('cpu', current, main) }}</td>
+            </tr>
+            <tr>
+                <th>包含内存占用</th>
+                <td>{{ helpers.time_and_percent('mu', current, main) }}</td>
+            </tr>
+            <tr>
+                <th>包含内存占用峰值</th>
+                <td>{{ helpers.time_and_percent('pmu', current, main) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    {% if parents is not empty %}
+        <h3>父函数</h3>
+        <table class="table table-hover table-sort">
+            <thead>
+                <tr>
+                    <th>函数</th>
+                    <th>调用次数</th>
+
+                    <th>自身执行时间</th>
+                    <th>自身内存占用</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for parent in parents %}
+            <tr>
+                <td class="text child-symbol">
+                    {{ helpers.tip_link(
+                        parent.function,
+                        40,
+                        'run.symbol',
+                        {'id': id, 'symbol': parent.function}
+                    ) }}
+                </td>
+                <td>{{ child.ct }}</td>
+
+                <td>{{ helpers.time_and_percent('wt', parent, main) }}</td>
+                <td>{{ parent.mu|as_bytes }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if children is not empty %}
+        <h3>子函数</h3>
+        <table class="table table-hover table-sort">
+            <thead>
+                <tr>
+                    <th>函数</th>
+                    <th>调用次数</th>
+
+                    <th>自身执行时间</th>
+                    <th>自身内存占用</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for child in children %}
+            <tr>
+                <td class="text child-symbol">
+                    {{ helpers.tip_link(
+                        child.function,
+                        40,
+                        'run.symbol',
+                        {'id': id, 'symbol': child.function}
+                    ) }}
+                </td>
+                <td>{{ child.ct }}</td>
+
+                <td>{{ helpers.time_and_percent('wt', child, main) }}</td>
+                <td>{{ child.mu|as_bytes }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+</div>

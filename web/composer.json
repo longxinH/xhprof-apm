@@ -1,0 +1,26 @@
+{
+    "name": "longxinh/xhprof-gui",
+    "description": "A web based interface for viewing profile data collected by XHProf.",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "": "src"
+        }
+    },
+    "require": {
+        "php": ">=5.4.0",
+        "slim/slim": "^3.0",
+        "slim/twig-view": "^2.0",
+        "slim/pdo": "~1.10"
+    },
+    "require-dev": {
+    },
+    "suggest": {
+    },
+    "repositories": {
+        "packagist": {
+            "type": "composer",
+            "url": "https://packagist.phpcomposer.com"
+        }
+    }
+}
