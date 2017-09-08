@@ -62,6 +62,7 @@ xhprof_apm.php_file = /path/to/xhprof-apm/export.php
 |xhprof_apm.export  | 可选php、curl | 日志提交方式|
 |xhprof_apm.php_file  | 脚本路径 | export = php时，在请求结束后，会将结果注册到$_apm_export变量，在此脚本中获取到日志结果，用户自行后续操作|
 |xhprof_apm.curl_uri  | http地址 | export = curl时，在请求结束后，会将结果提交到该地址|
+|xhprof_apm.curl_timeout_ms  | 毫秒级 (1s = 1000ms) | curl超时，默认值：1000ms|
 
 ### php_file
 ```php
@@ -76,7 +77,7 @@ curl的数据经过json_encode处理
 file_put_contents('/tmp/xhprof_apm.log', file_get_contents("php://input") . PHP_EOL, FILE_APPEND);
 ```
 
-### 返回格式
+### 数据格式
 ```php
 array(6) {
   ["meta"] =>

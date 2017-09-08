@@ -192,6 +192,7 @@ PHP_INI_ENTRY("xhprof_apm.config_ini", "", PHP_INI_ALL, NULL)
 PHP_INI_ENTRY("xhprof_apm.export", "php", PHP_INI_ALL, NULL)
 PHP_INI_ENTRY("xhprof_apm.php_file", "", PHP_INI_ALL, NULL)
 PHP_INI_ENTRY("xhprof_apm.curl_uri", "", PHP_INI_ALL, NULL)
+PHP_INI_ENTRY("xhprof_apm.curl_timeout_ms", "1000", PHP_INI_ALL, NULL)
 
 PHP_INI_END()
 
@@ -2301,8 +2302,9 @@ static int hp_rshutdown_curl(zval *data, int debug TSRMLS_DC) {
 
 	CURL *curl = curl_easy_init();
 	if (curl) {
-		CURLcode res;
+        CURLcode res;
 		struct curl_slist *headers = NULL;
+		double timeout = INI_FLT("xhprof_apm.curl_timeout_ms");
 
 		headers = curl_slist_append(headers, "User-Agent: Xhprof-apm");
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -2310,8 +2312,8 @@ static int hp_rshutdown_curl(zval *data, int debug TSRMLS_DC) {
 		curl_easy_setopt(curl, CURLOPT_URL, uri);
 		curl_easy_setopt(curl, CURLOPT_POST, 1);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, buf.c);
-		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3);
-		curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (int)timeout);
+		curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (int)ceil(timeout / 1000));
 
 		curl_easy_setopt(curl, CURLOPT_NETRC, 0);
 		curl_easy_setopt(curl, CURLOPT_HEADER, 0);
