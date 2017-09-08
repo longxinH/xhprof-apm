@@ -63,21 +63,68 @@ xhprof_apm.php_file = /path/to/xhprof-apm/export.php
 |xhprof_apm.php_file  | 脚本路径 | export = php时，在请求结束后，会将结果注册到$_apm_export变量，在此脚本中获取到日志结果，用户自行后续操作|
 |xhprof_apm.curl_uri  | http地址 | export = curl时，在请求结束后，会将结果提交到该地址|
 
-### 例子 [php](https://github.com/longxinH/xhprof-apm/blob/master/examples/php_export.php)、[mysql](https://github.com/longxinH/xhprof-apm/blob/master/examples/mysql_export.php)、[curl](https://github.com/longxinH/xhprof-apm/blob/master/examples/curl_export.php)
+### php_file
+```php
+<?php
+var_dump($_apm_export);
+```
+
+### curl_uri
+curl的数据经过json_encode处理
+```php
+<?php
+file_put_contents('/tmp/xhprof_apm.log', file_get_contents("php://input") . PHP_EOL, FILE_APPEND);
+```
+
+### 返回格式
+```php
+array(6) {
+  ["meta"] =>
+      array(5) {
+        ["url"] => 完整请求地址 (string)
+        ["simple_url"] => 精简后的地址，保留请求参数，但不保留值，用作特定参数请求的匹配 (string)
+        ["request_date"] => 请求时间戳 (int)
+        ["SERVER"] => $_SERVER的值 (array)
+        ["GET"] => $_GET的值 (array)
+      }
+  ["profile"] => 性能分析 (array)
+  ["wt"] => 执行时间 (int)
+  ["cpu"] => CPU执行时间 (int)
+  ["mu"] => 内存使用 (int)
+  ["debug"] => 是否debug模式启动 (int)
+}
+```
+
+#### [更多例子](https://github.com/longxinH/xhprof-apm/blob/master/examples/)
 
 ### config_ini配置说明
 可采用相对路径的形式，单独对项目控制。
 
 |      配置选项        |      选项      |   说明    |
-| --------------- |:-------------:| ---------:|
+| --------------- |:-------------:| ---------|
 |apm.auto  | 1、0 | 1：开启、0：关闭|
 |apm.flags  | APM_FLAGS_NO_BUILTINS、APM_FLAGS_CPU、APM_FLAGS_MEMORY | 额外信息的可选标记 ([说明](http://php.net/manual/zh/xhprof.constants.php))|
 |apm.ignored  | array的可选选项 |忽略性能分析中的某些函数 |
 |apm.rate  | 0 - 100 |频率设置，按照0到100的百分比，如果auto设为0，此选项不会生效，如设置大于100会每次开启，等于0则不开启。当不需要此选项时，请注释掉|
+|apm.debug  | GET参数名 |此选项可通过特定的GET参数开启性能分析，注释即可关闭。如设置auto = 0，同时GET参数中带有设置值 (例如 http://localhost/?apm_debug) ，也会开启性能分析，优先级高于auto。|
 
-### 例子 [apm.ini](https://github.com/longxinH/xhprof-apm/blob/master/examples/ini/apm.ini)
+```
+apm.auto = 1
 
-### 日志管理界面
+;APM_FLAGS_NO_BUILTINS
+;APM_FLAGS_CPU
+;APM_FLAGS_MEMORY
+apm.flags = APM_FLAGS_CPU | APM_FLAGS_MEMORY
+
+apm.ignored[] = md5
+
+;0 - 100
+;apm.rate = 30
+
+apm.debug = apm_debug
+```
+
+## 日志管理界面
 ```
 cd xhprof-apm/web/
 composer install
@@ -125,4 +172,4 @@ http://localhost/
 ```
 
 ## 感谢
-shaukei 在开源路上的帮助与支持。[github](https://github.com/shaukei)、[weibo](http://weibo.com/u/2056428223?refer_flag=1005055013_)
+[shaukei](https://github.com/shaukei)

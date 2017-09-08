@@ -48,7 +48,7 @@
             {% endif %}
             <td>
               <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
-                {{ result.meta('SERVER.REQUEST_METHOD') }}
+                {{ result.meta('SERVER.REQUEST_METHOD') }}{% if result.export('debug') %} / DEBUG{% endif %}
               </a>
             </td>
             <td>

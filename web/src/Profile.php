@@ -145,6 +145,23 @@ class Profile
         return new DateTime('now');
     }
 
+    public function getExport($key = null)
+    {
+        $data = $this->_data['export'];
+        if ($key === null) {
+            return $data;
+        }
+        $parts = explode('.', $key);
+        foreach ($parts as $key) {
+            if (is_array($data) && isset($data[$key])) {
+                $data =& $data[$key];
+            } else {
+                return null;
+            }
+        }
+        return $data;
+    }
+
     /**
      * Get meta data about the profile. Read's a . split path
      * out of the meta data in a profile. For example `SERVER.REQUEST_TIME`

@@ -204,6 +204,8 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
 
     char *root;
 
+    int debug;
+
     /* counter table indexed by hash value of function names. */
     uint8  func_hash_counters[256];
 

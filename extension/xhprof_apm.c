@@ -207,6 +207,7 @@ PHP_GINIT_FUNCTION(apm)
 	apm_globals->entries = NULL;
     apm_globals->root = NULL;
 	apm_globals->trace_callbacks = NULL;
+	apm_globals->debug = 0;
 }
 
 /**
@@ -438,6 +439,7 @@ void hp_clean_profiler_state(TSRMLS_D) {
 
 	APM_G(entries) = NULL;
 	APM_G(ever_enabled) = 0;
+	APM_G(debug) = 0;
 
 	/* Delete the array storing ignored function names */
 	hp_array_del(APM_G(ignored_function_names));
@@ -1954,17 +1956,17 @@ static char* hp_trace_callback_curl_exec(char *symbol, zend_execute_data *data T
     MAKE_STD_ZVAL(func);
     ZVAL_STRINGL(func, "curl_getinfo", strlen("curl_getinfo"), 1);
 
-    zend_fcall_info fci = {
-        sizeof(fci),
-        EG(function_table),
-        func,
-        NULL,
-        &retval,
-        1,
-        (zval ***)params,
-        NULL,
-        1
-    };
+	zend_fcall_info fci = {
+		size: sizeof(zend_fcall_info),
+		function_table: EG(function_table),
+		function_name: func,
+		symbol_table: NULL,
+		retval_ptr_ptr: &retval,
+		param_count: 1,
+		params: (zval ***)params,
+		object_ptr: NULL,
+		no_separation: 1
+	};
 
     if (zend_call_function(&fci, NULL TSRMLS_CC) == FAILURE) {
         if (retval) {
@@ -2080,7 +2082,7 @@ zval *hp_request_query(uint type, char * name, uint len TSRMLS_DC) {
     return *ret;
 }
 
-static zval *hp_get_export_data(zval *data) {
+static zval *hp_get_export_data(zval *data, int debug) {
     zval *meta, *result, *root, *repl, *pzurl;
 	char *scheme, *url;
     int request_date;
@@ -2148,6 +2150,8 @@ static zval *hp_get_export_data(zval *data) {
 		add_assoc_long_ex(result, ZEND_STRS("mu"), 0);
 	}
 
+	add_assoc_long_ex(result, ZEND_STRS("debug"), debug);
+
 	zval_ptr_dtor(&uri);
 	zval_ptr_dtor(&ssl);
 	zval_ptr_dtor(&server_name);
@@ -2161,9 +2165,7 @@ static zval *hp_get_export_data(zval *data) {
 
 }
 
-static int hp_rshutdown_php(zval *data TSRMLS_DC) {
-	zend_file_handle file_handle;
-	zend_op_array *op_array = NULL;
+static int hp_rshutdown_php(zval *data, int debug TSRMLS_DC) {
 	char realpath[MAXPATHLEN];
 	char *path;
 
@@ -2172,25 +2174,28 @@ static int hp_rshutdown_php(zval *data TSRMLS_DC) {
     }
 
     spprintf(&path, 0, "%s", INI_STR("xhprof_apm.php_file"));
-
     if (!VCWD_REALPATH(path, realpath)) {
-        char *buffer;
-        buffer = getcwd(NULL, 0);
-        spprintf(&path, 0, "%s%s", buffer, INI_STR("xhprof_apm.php_file"));
+		efree(path);
+		zval *document_root = hp_request_query(TRACK_VARS_SERVER, "DOCUMENT_ROOT", strlen("DOCUMENT_ROOT") TSRMLS_CC);
+		spprintf(&path, 0, "%s/%s", Z_STRVAL_P(document_root), INI_STR("xhprof_apm.php_file"));
+		zval_ptr_dtor(&document_root);
 
         if (!VCWD_REALPATH(path, realpath)) {
-            efree(path);
+			zval_ptr_dtor(&data);
+			efree(path);
             return 0;
         }
 	}
 
-	file_handle.filename = path;
-	file_handle.free_filename = 0;
-	file_handle.type = ZEND_HANDLE_FILENAME;
-	file_handle.opened_path = NULL;
-	file_handle.handle.fp = NULL;
+	zend_file_handle file_handle = {
+		filename: realpath,
+		free_filename: 0,
+		type: ZEND_HANDLE_FILENAME,
+		opened_path: NULL,
+		handle: {fp: NULL},
+	};
 
-	op_array = zend_compile_file(&file_handle, ZEND_INCLUDE TSRMLS_CC);
+	zend_op_array *op_array = zend_compile_file(&file_handle, ZEND_INCLUDE TSRMLS_CC);
 
 	if (op_array && file_handle.handle.stream.handle) {
 		int dummy = 1;
@@ -2238,7 +2243,7 @@ static int hp_rshutdown_php(zval *data TSRMLS_DC) {
 #endif
 
         zend_try {
-            zval *export_data = hp_get_export_data(data);
+            zval *export_data = hp_get_export_data(data, debug);
             ZEND_SET_SYMBOL(EG(active_symbol_table), "_apm_export", export_data);
             zend_execute(op_array TSRMLS_CC);
         } zend_catch {
@@ -2275,19 +2280,21 @@ static int hp_rshutdown_php(zval *data TSRMLS_DC) {
 static size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp) {
 }
 
-static int hp_rshutdown_curl(zval *data TSRMLS_DC) {
+static int hp_rshutdown_curl(zval *data, int debug TSRMLS_DC) {
 	char *uri = INI_STR("xhprof_apm.curl_uri");
 
 	if (!uri) {
+		zval_ptr_dtor(&data);
 		return 0;
 	}
 
 	smart_str buf = {0};
+	zval *export_data = hp_get_export_data(data, debug);
 
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3))
-	php_json_encode(&buf, data TSRMLS_CC);
+	php_json_encode(&buf, export_data TSRMLS_CC);
 #else
-	php_json_encode(&buf, data, 0 TSRMLS_CC); /* options */
+	php_json_encode(&buf, export_data, 0 TSRMLS_CC); /* options */
 #endif
 
 	smart_str_0(&buf);
@@ -2320,10 +2327,13 @@ static int hp_rshutdown_curl(zval *data TSRMLS_DC) {
 
 		smart_str_free(&buf);
 		curl_slist_free_all(headers);
+
+		zval_ptr_dtor(&export_data);
 		return 1;
 	}
 
 	smart_str_free(&buf);
+	zval_ptr_dtor(&export_data);
 	return 0;
 }
 
@@ -2348,6 +2358,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		spprintf(&config_ini, 0, "%s", INI_STR("xhprof_apm.config_ini"));
 
 		if (!VCWD_REALPATH(config_ini, realpath)) {
+			efree(config_ini);
 			zval *document_root = hp_request_query(TRACK_VARS_SERVER, "DOCUMENT_ROOT", strlen("DOCUMENT_ROOT") TSRMLS_CC);
 			spprintf(&config_ini, 0, "%s/%s", Z_STRVAL_P(document_root), INI_STR("xhprof_apm.config_ini"));
 			zval_ptr_dtor(&document_root);
@@ -2386,6 +2397,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		apm_config = hp_zval_at_key("apm", configs);
 
 		if (!apm_config) {
+			zval_ptr_dtor(&configs);
 			return SUCCESS;
 		}
 
@@ -2395,26 +2407,43 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 			enable = Z_LVAL_P(zval_auto);
 		}
 
+		zval *zval_debug = hp_zval_at_key("debug", apm_config);
+		if (zval_debug) {
+			convert_to_string(zval_debug);
+			zval *zval_param = hp_request_query(TRACK_VARS_GET, Z_STRVAL_P(zval_debug), Z_STRLEN_P(zval_debug));
+			if (Z_TYPE_P(zval_param) != IS_NULL) {
+				APM_G(debug) = 1;
+				enable = 1;
+			}
+
+			zval_ptr_dtor(&zval_param);
+		}
+
 		if (!enable) {
+			zval_ptr_dtor(&configs);
 			return SUCCESS;
 		}
 
-        zval *zval_rate = hp_zval_at_key("rate", apm_config);
-        if (zval_rate) {
-            convert_to_long(zval_rate);
-            int sample_rate = Z_LVAL_P(zval_rate);
+		if (!APM_G(debug)) {
+			zval *zval_rate = hp_zval_at_key("rate", apm_config);
+			if (zval_rate) {
+				convert_to_long(zval_rate);
+				int sample_rate = Z_LVAL_P(zval_rate);
 
-            if (!sample_rate) {
-                return SUCCESS;
-            }
+				if (!sample_rate) {
+					zval_ptr_dtor(&configs);
+					return SUCCESS;
+				}
 
-			long number = php_rand(TSRMLS_C);
-			RAND_RANGE(number, 0, 100, PHP_RAND_MAX);
+				long number = php_rand(TSRMLS_C);
+				RAND_RANGE(number, 0, 100, PHP_RAND_MAX);
 
-			if (sample_rate < number) {
-				return SUCCESS;
+				if (sample_rate < number) {
+					zval_ptr_dtor(&configs);
+					return SUCCESS;
+				}
 			}
-        }
+		}
 
 		zval *zval_flags = hp_zval_at_key("flags", apm_config);
 		if (zval_flags) {
@@ -2438,20 +2467,20 @@ PHP_RSHUTDOWN_FUNCTION(xhprof_apm) {
 	if (APM_G(enabled)) {
 		hp_stop(TSRMLS_C);
 
-		zval *data;
-		MAKE_STD_ZVAL(data);
-		ZVAL_ZVAL(data, APM_G(stats_count), 1, 0);
+		zval *pzval;
+		MAKE_STD_ZVAL(pzval);
+		ZVAL_ZVAL(pzval, APM_G(stats_count), 1, 0);
+
+		int debug = APM_G(debug);
 
 		hp_end(TSRMLS_C);
 
 		char *export = INI_STR("xhprof_apm.export");
 		if (strcmp(export, "php") == 0) {
-			hp_rshutdown_php(data TSRMLS_CC);
+			hp_rshutdown_php(pzval, debug TSRMLS_CC);
 		} else if (strcmp(export, "curl") == 0) {
-			hp_rshutdown_curl(data TSRMLS_CC);
+			hp_rshutdown_curl(pzval, debug TSRMLS_CC);
 		}
-
-        zval_ptr_dtor(&data);
 	}
 
 	return SUCCESS;
