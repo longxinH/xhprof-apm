@@ -131,7 +131,26 @@ cd xhprof-apm/web/
 composer install
 ```
 
+### 存储方式
+推荐使用MongoDB
+ * [Mysql](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#Mysql)
+ * [MongoDB](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#MongoDB)
+
+### MongoDB
+1. 安装MongoDB [官网](https://www.mongodb.com/)
+2. MongoDB扩展 [mongo-php-driver](https://github.com/mongodb/mongo-php-driver)
+3. 启动MongoDB
+3. 创建索引
+```
+$ mongo
+> use xhprof_apm
+> db.results.createIndex({'wt' : -1})
+> db.results.createIndex({'cpu' : -1})
+> db.results.createIndex({'mu' : -1})
+```
+
 ### Mysql
+1. 创建数据表
 ```
 CREATE TABLE `xhprof_apm` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -150,7 +169,7 @@ CREATE TABLE `xhprof_apm` (
 ```
 server {
     listen   80;
-    server_name localhost;
+    server_name apm.com;
 
     root   /path/to/xhprof-apm/web/htdocs;
     index  index.php;
@@ -166,10 +185,6 @@ server {
         include fastcgi_params;  
     }
 }
-```
-### 访问
-```
-http://localhost/
 ```
 
 ## 感谢

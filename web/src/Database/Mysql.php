@@ -5,7 +5,7 @@ use Slim\PDO\Statement\SelectStatement;
 use Slim\PDO\Statement\StatementContainer;
 use Slim\PDO\Database;
 
-class Mysql
+class Mysql implements DbInterface
 {
 
     /**
@@ -15,14 +15,11 @@ class Mysql
 
     protected $_dbname;
 
-    protected $_pk;
-
     public function __construct($dbhost, $username, $password, $dbname, $dbcharset = 'utf8') {
         try {
             $dsn = 'mysql:dbname=' . $dbname . ';host=' . $dbhost . ';charset=' . $dbcharset;
             $this->_dbname = $dbname;
             $this->_dbh = new Database($dsn, $username, $password);
-            $this->_pk = $this->_dbh->query("show keys from {$dbname} where key_name = 'PRIMARY'")->fetch()['Column_name'];
         } catch (\PDOException $e) {
             throw new \Exception($e->getMessage(), $e->getCode());
         }
@@ -45,18 +42,17 @@ class Mysql
     {
         $selectStatement = $this->_dbh->select()->from($this->_dbname)->orderBy($sort, $direction)->limit($limit, ($page - 1) * $limit);
         $this->_conditions($selectStatement, $conditions);
-        return $selectStatement->execute()->fetchAll();
+        $list = $selectStatement->execute()->fetchAll();
+
+        return $this->_format($list);
     }
 
-    public function findOne(array $conditions = [])
+    public function findOne($id)
     {
         $selectStatement = $this->_dbh->select()->from($this->_dbname);
-
-        foreach ($conditions as $column => $val) {
-            $selectStatement->where($column, '=', $val);
-        }
-
-        return $selectStatement->execute()->fetch();
+        $selectStatement->where('id', '=', $id);
+        $row = $selectStatement->execute()->fetch();
+        return $this->_format($row);
     }
 
     public function findAll(array $conditions = [])
@@ -67,7 +63,8 @@ class Mysql
             $selectStatement->where($column, '=', $val);
         }
 
-        return $selectStatement->execute()->fetchAll();
+        $list = $selectStatement->execute()->fetchAll();
+        return $this->_format($list);
     }
 
     /**
@@ -79,11 +76,6 @@ class Mysql
     {
         $table = $table ? $table : $this->_dbname;
         return $this->_dbh->select($columns)->from($table);
-    }
-
-    public function getPk()
-    {
-        return $this->_pk;
     }
 
     protected function _conditions(StatementContainer $stmt, $search)
@@ -119,5 +111,27 @@ class Mysql
             }
         }
 
+    }
+
+    protected function _format($list)
+    {
+        if (empty($list)) {
+            return [];
+        }
+
+        $result = [];
+        if (count($list) == count($list, 1)) {
+            $result = array_merge($list, json_decode($list['export'], true));
+            unset($result['export']);
+        } else {
+            foreach ($list as $row) {
+                $row = array_merge($row, json_decode($row['export'], true));
+                unset($row['export']);
+
+                $result[] = $row;
+            }
+        }
+
+        return $result;
     }
 }

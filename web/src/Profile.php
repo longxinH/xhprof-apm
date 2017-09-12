@@ -26,11 +26,7 @@ class Profile
     public function __construct($profile, $convert = true)
     {
         $this->_data = $profile;
-        if (!empty($this->_data['export']) && $convert) {
-            if (is_string($this->_data['export'])) {
-                $this->_data['export'] = json_decode($this->_data['export'], true);
-            }
-
+        if (!empty($this->_data['profile']) && $convert) {
             $this->_process();
         }
     }
@@ -47,7 +43,7 @@ class Profile
     protected function _process()
     {
         $result = array();
-        foreach ($this->_data['export']['profile'] as $name => $values) {
+        foreach ($this->_data['profile'] as $name => $values) {
             list($parent, $func) = $this->splitName($name);
 
             // Generate collapsed data.
@@ -145,9 +141,9 @@ class Profile
         return new DateTime('now');
     }
 
-    public function getExport($key = null)
+    public function getData($key = null)
     {
-        $data = $this->_data['export'];
+        $data = $this->_data;
         if ($key === null) {
             return $data;
         }
@@ -171,7 +167,7 @@ class Profile
      */
     public function getMeta($key = null)
     {
-        $data = $this->_data['export']['meta'];
+        $data = $this->_data['meta'];
         if ($key === null) {
             return $data;
         }

@@ -104,14 +104,6 @@ class Run extends \Controller
             $search['limit'] = $search['limit_custom'];
         }
 
-//        $chartData = $this->_profiles->getPercentileForUrl(
-//            90,
-//            $this->_request->getQueryParam('url'),
-//            $search
-//        );
-
-        $chartData = [];
-
         $paging = [
             'total_pages' => $runs['totalPages'],
             'sort' => $pagination['sort'],
@@ -123,7 +115,6 @@ class Run extends \Controller
             'base_url' => 'url.view',
             'runs' => $runs['results'],
             'url' => $this->_request->getQueryParam('url'),
-            'chart_data' => $chartData,
             'date_format' => $this->config('date.format'),
             'search' => array_merge($search, ['url' => $this->_request->getQueryParam('url')]),
         ];

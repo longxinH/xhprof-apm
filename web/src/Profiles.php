@@ -2,9 +2,6 @@
 
 class Profiles
 {
-    /**
-     * @var \Database\Mysql
-     */
     protected $_db;
 
     public function __construct($db)
@@ -26,7 +23,7 @@ class Profiles
         if (isset($options['page'])) {
             $page = min(max($options['page'], 1), $totalPages);
         }
-        $sort = !empty($options['sort']) ? $options['sort'] : $this->_db->getPk();
+        $sort = !empty($options['sort']) ? $options['sort'] : 'id';
 
         $cursor = $this->_db->paginate($page, $limit, $options['conditions'], $sort);
 
@@ -63,11 +60,7 @@ class Profiles
      */
     public function get($id)
     {
-        $row = $this->_db->findOne(
-            [
-                'id' => $id
-            ]
-        );
+        $row = $this->_db->findOne($id);
 
         return $this->_wrap($row);
     }
@@ -79,15 +72,11 @@ class Profiles
      */
     protected function _wrap($data)
     {
-        if ($data === null) {
-            throw new Exception('No profile data found.');
-        }
-
-        if (empty($data)) {
+        if ($data === null || empty($data)) {
             return [];
         }
 
-        if (count($data) == count($data, 1)) {
+        if (!isset($data[0])) {
             return new Profile($data);
         } else {
             $results = [];
