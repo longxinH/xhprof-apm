@@ -16,6 +16,8 @@ xhprof-apm 是一款非侵入式监控平台，基于[xhprof](https://github.com
 
 ### 配置要求
  * PHP 5.3 +
+ * MongoDB 3.0.0 +
+ * MongoDB Extension 1.2.6 +
  * 不支持CLI模式
  
 ## 模块
@@ -57,7 +59,7 @@ xhprof_apm.php_file = /path/to/xhprof-apm/export.php
 
 ### php.ini配置说明
 |      配置选项        |      选项      |   说明    |
-| --------------- |:-------------:| ---------:|
+| --------------- |:-------------:|:---------|
 |xhprof_apm.config_ini  | 配置文件的路径(支持绝对或相对路径) | 用于控制扩展开关和选项，使用相对路径可独立控制项目|
 |xhprof_apm.export  | 可选php、curl | 日志提交方式|
 |xhprof_apm.php_file  | 脚本路径 | export = php时，在请求结束后，会将结果注册到$_apm_export变量，在此脚本中获取到日志结果，用户自行后续操作|
@@ -102,7 +104,7 @@ array(6) {
 可采用相对路径的形式，单独对项目控制。
 
 |      配置选项        |      选项      |   说明    |
-| --------------- |:-------------:| ---------|
+| --------------- |:-------------:|:---------|
 |apm.auto  | 1、0 | 1：开启、0：关闭|
 |apm.flags  | APM_FLAGS_NO_BUILTINS、APM_FLAGS_CPU、APM_FLAGS_MEMORY | 额外信息的可选标记 ([说明](http://php.net/manual/zh/xhprof.constants.php))|
 |apm.ignored  | array的可选选项 |忽略性能分析中的某些函数 |
@@ -133,8 +135,8 @@ composer install
 
 ### 存储方式
 推荐使用MongoDB
- * [Mysql](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#Mysql)
- * [MongoDB](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#MongoDB)
+ * [Mysql](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#mysql)
+ * [MongoDB](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#mongodb)
 
 ### MongoDB
 1. 安装MongoDB [官网](https://www.mongodb.com/)
