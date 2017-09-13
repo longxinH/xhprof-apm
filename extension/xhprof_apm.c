@@ -77,86 +77,6 @@
 #include "main/SAPI.h"
 
 /**
- * ***********************
- * GLOBAL STATIC VARIABLES
- * ***********************
- */
-#if PHP_VERSION_ID < 50500
-/* Pointer to the original execute function */
-static ZEND_DLEXPORT void (*_zend_execute) (zend_op_array *ops TSRMLS_DC);
-
-/* Pointer to the origianl execute_internal function */
-static ZEND_DLEXPORT void (*_zend_execute_internal) (zend_execute_data *data, int ret TSRMLS_DC);
-#else
-/* Pointer to the original execute function */
-static void (*_zend_execute_ex) (zend_execute_data *execute_data TSRMLS_DC);
-
-/* Pointer to the origianl execute_internal function */
-static void (*_zend_execute_internal) (zend_execute_data *data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
-#endif
-
-/* Pointer to the original compile function */
-static zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type TSRMLS_DC);
-
-/* Pointer to the original compile string function (used by eval) */
-static zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename TSRMLS_DC);
-
-ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
-ZEND_DLEXPORT zend_op_array* hp_compile_string(zval *source_string, char *filename TSRMLS_DC);
-
-ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC);
-ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
-
-/* Bloom filter for function names to be ignored */
-#define INDEX_2_BYTE(index)  (index >> 3)
-#define INDEX_2_BIT(index)   (1 << (index & 0x7));
-
-/**
- * ****************************
- * STATIC FUNCTION DECLARATIONS
- * ****************************
- */
-static void hp_register_constants(INIT_FUNC_ARGS);
-
-static void hp_begin(long xhprof_flags TSRMLS_DC);
-static void hp_stop(TSRMLS_D);
-static void hp_end(TSRMLS_D);
-
-static inline uint64 cycle_timer();
-static double get_cpu_frequency();
-static void clear_frequencies();
-
-static void hp_free_the_free_list();
-static hp_entry_t *hp_fast_alloc_hprof_entry();
-static void hp_fast_free_hprof_entry(hp_entry_t *p);
-static inline uint8 hp_inline_hash(char * str);
-static void get_all_cpu_frequencies();
-static long get_us_interval(struct timeval *start, struct timeval *end);
-static void incr_us_interval(struct timeval *start, uint64 incr);
-
-static void hp_get_ignored_functions_from_arg(zval *args);
-static void hp_ignored_functions_filter_clear();
-static void hp_ignored_functions_filter_init();
-
-static inline zval *hp_zval_at_key(char  *key,
-									zval  *values);
-static inline char **hp_strings_in_zval(zval  *values);
-static inline void hp_array_del(char **name_array);
-
-static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_DC);
-static void hp_init_trace_callbacks(TSRMLS_D);
-
-/**
- * *********************
- * FUNCTION PROTOTYPES
- * *********************
- */
-int restore_cpu_affinity(cpu_set_t * prev_mask);
-int bind_to_cpu(uint32 cpu_id);
-
-typedef char* (*hp_trace_callback)(char *symbol, zend_execute_data *data TSRMLS_DC);
-
-/**
  * *********************
  * PHP EXTENSION GLOBALS
  * *********************
@@ -208,6 +128,7 @@ PHP_GINIT_FUNCTION(apm)
 	apm_globals->entries = NULL;
     apm_globals->root = NULL;
 	apm_globals->trace_callbacks = NULL;
+    apm_globals->ignored_functions = NULL;
 	apm_globals->debug = 0;
 }
 
@@ -248,8 +169,6 @@ PHP_MINIT_FUNCTION(xhprof_apm) {
 	for (i = 0; i < 256; i++) {
 		APM_G(func_hash_counters[i]) = 0;
 	}
-
-	hp_ignored_functions_filter_clear();
 
     APM_STORE_ZEND_HANDLE();
 
@@ -312,7 +231,7 @@ static void hp_register_constants(INIT_FUNC_ARGS) {
  *
  * @author cjiang
  */
-static inline uint8 hp_inline_hash(char * str) {
+static inline uint8 hp_inline_hash(char *str) {
 	ulong h = 5381;
 	uint i = 0;
 	uint8 res = 0;
@@ -328,52 +247,39 @@ static inline uint8 hp_inline_hash(char * str) {
 	return res;
 }
 
-/**
- * Parse the list of ignored functions from the zval argument.
- *
- * @author mpal
- */
-static void hp_get_ignored_functions_from_arg(zval *args) {
+static hp_ignored_function_map *hp_ignored_functions_init(char **names) {
+    if (names == NULL) {
+        return NULL;
+    }
 
-	if (APM_G(ignored_function_names)) {
-		hp_array_del(APM_G(ignored_function_names));
-	}
+	hp_ignored_function_map *function_map;
 
-	if (args != NULL) {
-		zval  *zresult = NULL;
+    function_map = emalloc(sizeof(hp_ignored_function_map));
+    function_map->names = names;
 
-		zresult = hp_zval_at_key("ignored", args);
-		APM_G(ignored_function_names) = hp_strings_in_zval(zresult);
-	} else {
-		APM_G(ignored_function_names) = NULL;
-	}
+    memset(function_map->filter, 0, XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
+
+    int i = 0;
+    for(; names[i] != NULL; i++) {
+        char *str  = names[i];
+        uint8 hash = hp_inline_hash(str);
+        int   idx  = INDEX_2_BYTE(hash);
+        function_map->filter[idx] |= INDEX_2_BIT(hash);
+    }
+
+    return function_map;
 }
 
-/**
- * Clear filter for functions which may be ignored during profiling.
- *
- * @author mpal
- */
-static void hp_ignored_functions_filter_clear() {
-	memset(APM_G(ignored_function_filter), 0,
-		   XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
-}
+static void hp_ignored_functions_clear(hp_ignored_function_map *map) {
+    if (map == NULL) {
+        return;
+    }
 
-/**
- * Initialize filter for ignored functions using bit vector.
- *
- * @author mpal
- */
-static void hp_ignored_functions_filter_init() {
-	if (APM_G(ignored_function_names) != NULL) {
-		int i = 0;
-		for(; APM_G(ignored_function_names[i]) != NULL; i++) {
-			char *str  = APM_G(ignored_function_names[i]);
-			uint8 hash = hp_inline_hash(str);
-			int   idx  = INDEX_2_BYTE(hash);
-			APM_G(ignored_function_filter[idx]) |= INDEX_2_BIT(hash);
-		}
-	}
+    hp_array_del(map->names);
+    map->names = NULL;
+
+    memset(map->filter, 0, XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
+    efree(map);
 }
 
 /**
@@ -381,12 +287,10 @@ static void hp_ignored_functions_filter_init() {
  *
  * @author mpal
  */
-int hp_ignored_functions_filter_collision(uint8 hash) {
+int hp_ignored_functions_filter_collision(hp_ignored_function_map *map, uint8 hash) {
 	uint8 mask = INDEX_2_BIT(hash);
-	return APM_G(ignored_function_filter[INDEX_2_BYTE(hash)]) & mask;
+	return map->filter[INDEX_2_BYTE(hash)] & mask;
 }
-
-
 
 /**
  * Initialize profiler state
@@ -419,9 +323,6 @@ void hp_init_profiler_state() {
 	/* bind to a random cpu so that we can use rdtsc instruction. */
 	bind_to_cpu((int) (rand() % APM_G(cpu_num)));
 
-	/* Set up filter of functions which may be ignored during profiling */
-	hp_ignored_functions_filter_init();
-
 	hp_init_trace_callbacks(TSRMLS_C);
 
 }
@@ -443,63 +344,9 @@ void hp_clean_profiler_state(TSRMLS_D) {
 	APM_G(debug) = 0;
 
 	/* Delete the array storing ignored function names */
-	hp_array_del(APM_G(ignored_function_names));
-	APM_G(ignored_function_names) = NULL;
+    hp_ignored_functions_clear(APM_G(ignored_functions));
+    APM_G(ignored_functions) = NULL;
 }
-
-/*
- * Start profiling - called just before calling the actual function
- * NOTE:  PLEASE MAKE SURE TSRMLS_CC IS AVAILABLE IN THE CONTEXT
- *        OF THE FUNCTION WHERE THIS MACRO IS CALLED.
- *        TSRMLS_CC CAN BE MADE AVAILABLE VIA TSRMLS_DC IN THE
- *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
- *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
- */
-#define BEGIN_PROFILING(entries, symbol, profile_curr, execute_data)                  \
-  do {                                                                  \
-    /* Use a hash code to filter most of the string comparisons. */     \
-    uint8 hash_code  = hp_inline_hash(symbol);                          \
-    profile_curr = !hp_ignore_entry(hash_code, symbol);                 \
-    if (profile_curr) {                                                 \
-        if (execute_data != NULL) {                                             \
-            symbol = hp_get_trace_callback(symbol, execute_data TSRMLS_CC);                     \
-        }                                                               \
-        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();              \
-        (cur_entry)->hash_code = hash_code;                               \
-        (cur_entry)->name_hprof = symbol;                                 \
-        (cur_entry)->prev_hprof = (*(entries));                           \
-        hp_mode_hier_beginfn_cb((entries), (cur_entry));    \
-        /* Update entries linked list */                                  \
-        (*(entries)) = (cur_entry);                                       \
-    }                                                                   \
-  } while (0)
-
-/*
- * Stop profiling - called just after calling the actual function
- * NOTE:  PLEASE MAKE SURE TSRMLS_CC IS AVAILABLE IN THE CONTEXT
- *        OF THE FUNCTION WHERE THIS MACRO IS CALLED.
- *        TSRMLS_CC CAN BE MADE AVAILABLE VIA TSRMLS_DC IN THE
- *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
- *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
- */
-#define END_PROFILING(entries, profile_curr)                            \
-  do {                                                                  \
-    if (profile_curr) {                                                 \
-      hp_entry_t *cur_entry;                                            \
-      /* Call the mode's endfn callback. */                             \
-      /* NOTE(cjiang): we want to call this 'end_fn_cb' before */       \
-      /* 'hp_mode_common_endfn' to avoid including the time in */       \
-      /* 'hp_mode_common_endfn' in the profiling results.      */       \
-      hp_mode_hier_endfn_cb((entries) TSRMLS_CC);                       \
-      cur_entry = (*(entries));                                         \
-      /* Call the universal callback */                                 \
-      hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);           \
-      /* Free top entry and update entries linked list */               \
-      (*(entries)) = (*(entries))->prev_hprof;                          \
-      hp_fast_free_hprof_entry(cur_entry);                              \
-    }                                                                   \
-  } while (0)
-
 
 /**
  * Returns formatted function name
@@ -510,7 +357,7 @@ void hp_clean_profiler_state(TSRMLS_D) {
  * @return total size of the function name returned in result_buf
  * @author veeve
  */
-size_t hp_get_entry_name(hp_entry_t  *entry,
+static size_t hp_get_entry_name(hp_entry_t  *entry,
 						 char           *result_buf,
 						 size_t          result_len) {
 
@@ -545,26 +392,22 @@ size_t hp_get_entry_name(hp_entry_t  *entry,
  *
  * @author mpal
  */
-int  hp_ignore_entry_work(uint8 hash_code, char *curr_func) {
-	int ignore = 0;
-	if (hp_ignored_functions_filter_collision(hash_code)) {
+static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func) {
+	if (APM_G(ignored_functions) == NULL) {
+		return 0;
+	}
+
+	hp_ignored_function_map *map = APM_G(ignored_functions);
+
+	if (hp_ignored_functions_filter_collision(map, hash_code)) {
 		int i = 0;
-		for (; APM_G(ignored_function_names[i]) != NULL; i++) {
-			char *name = APM_G(ignored_function_names[i]);
-			if ( !strcmp(curr_func, name)) {
-				ignore++;
-				break;
+		for (; map->names[i] != NULL; i++) {
+			char *name = map->names[i];
+			if (strcmp(curr_func, name) == 0) {
+				return 1;
 			}
 		}
 	}
-
-	return ignore;
-}
-
-static inline int  hp_ignore_entry(uint8 hash_code, char *curr_func) {
-	/* First check if ignoring functions is enabled */
-	return APM_G(ignored_function_names) != NULL &&
-		   hp_ignore_entry_work(hash_code, curr_func);
 }
 
 /**
@@ -1586,7 +1429,7 @@ static char **hp_strings_in_zval(zval  *values) {
 		return NULL;
 	}
 
-	if (values->type == IS_ARRAY) {
+	if (Z_TYPE_P(values) == IS_ARRAY) {
 		HashTable *ht;
 
 		ht    = Z_ARRVAL_P(values);
@@ -2163,7 +2006,6 @@ static zval *hp_get_export_data(zval *data, int debug) {
 	efree(simple_url);
 
     return result;
-
 }
 
 static int hp_rshutdown_php(zval *data, int debug TSRMLS_DC) {
@@ -2453,8 +2295,13 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 			flags = Z_LVAL_P(zval_flags);
 		}
 
-		hp_get_ignored_functions_from_arg(apm_config);
-		hp_begin(flags TSRMLS_CC);
+        zval *zval_ignored = hp_zval_at_key("ignored", apm_config);
+        if (zval_ignored) {
+            /* Set up filter of functions which may be ignored during profiling */
+            APM_G(ignored_functions) = hp_ignored_functions_init(hp_strings_in_zval(zval_ignored));
+        }
+
+        hp_begin(flags TSRMLS_CC);
 
 		zval_ptr_dtor(&configs);
 	}

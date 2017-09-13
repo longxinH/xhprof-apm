@@ -73,16 +73,6 @@ extern zend_module_entry xhprof_apm_module_entry;
 #define XHPROF_IGNORED_FUNCTION_FILTER_SIZE                           \
                ((XHPROF_MAX_IGNORED_FUNCTIONS + 7)/8)
 
-#if !defined(uint64)
-typedef unsigned long long uint64;
-#endif
-#if !defined(uint32)
-typedef unsigned int uint32;
-#endif
-#if !defined(uint8)
-typedef unsigned char uint8;
-#endif
-
 #if PHP_VERSION_ID > 50500
 #define APM_STORE_ZEND_HANDLE() \
 		/* Replace zend_compile with our proxy */ \
@@ -125,13 +115,76 @@ typedef unsigned char uint8;
 		zend_compile_string   = _zend_compile_string;
 #endif
 
+/*
+ * Start profiling - called just before calling the actual function
+ * NOTE:  PLEASE MAKE SURE TSRMLS_CC IS AVAILABLE IN THE CONTEXT
+ *        OF THE FUNCTION WHERE THIS MACRO IS CALLED.
+ *        TSRMLS_CC CAN BE MADE AVAILABLE VIA TSRMLS_DC IN THE
+ *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
+ *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
+ */
+#define BEGIN_PROFILING(entries, symbol, profile_curr, execute_data)         \
+  do {                                                                       \
+    /* Use a hash code to filter most of the string comparisons. */          \
+    uint8 hash_code  = hp_inline_hash(symbol);                               \
+    profile_curr = !hp_ignore_entry_work(hash_code, symbol);                 \
+    if (profile_curr) {                                                      \
+        if (execute_data != NULL) {                                          \
+            symbol = hp_get_trace_callback(symbol, execute_data TSRMLS_CC);  \
+        }                                                                    \
+        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();                 \
+        (cur_entry)->hash_code = hash_code;                                  \
+        (cur_entry)->name_hprof = symbol;                                    \
+        (cur_entry)->prev_hprof = (*(entries));                              \
+        hp_mode_hier_beginfn_cb((entries), (cur_entry));                     \
+        /* Update entries linked list */                                     \
+        (*(entries)) = (cur_entry);                                          \
+    }                                                                        \
+  } while (0)
+
+/*
+ * Stop profiling - called just after calling the actual function
+ * NOTE:  PLEASE MAKE SURE TSRMLS_CC IS AVAILABLE IN THE CONTEXT
+ *        OF THE FUNCTION WHERE THIS MACRO IS CALLED.
+ *        TSRMLS_CC CAN BE MADE AVAILABLE VIA TSRMLS_DC IN THE
+ *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
+ *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
+ */
+#define END_PROFILING(entries, profile_curr)                            \
+  do {                                                                  \
+    if (profile_curr) {                                                 \
+      hp_entry_t *cur_entry;                                            \
+      /* Call the mode's endfn callback. */                             \
+      /* NOTE(cjiang): we want to call this 'end_fn_cb' before */       \
+      /* 'hp_mode_common_endfn' to avoid including the time in */       \
+      /* 'hp_mode_common_endfn' in the profiling results.      */       \
+      hp_mode_hier_endfn_cb((entries) TSRMLS_CC);                       \
+      cur_entry = (*(entries));                                         \
+      /* Call the universal callback */                                 \
+      hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);           \
+      /* Free top entry and update entries linked list */               \
+      (*(entries)) = (*(entries))->prev_hprof;                          \
+      hp_fast_free_hprof_entry(cur_entry);                              \
+    }                                                                   \
+  } while (0)
+
 #define register_trace_callback(function_name, cb) zend_hash_update(APM_G(trace_callbacks), function_name, sizeof(function_name), &cb, sizeof(hp_trace_callback*), NULL);
+
 
 /**
  * *****************************
  * GLOBAL DATATYPES AND TYPEDEFS
  * *****************************
  */
+#if !defined(uint64)
+typedef unsigned long long uint64;
+#endif
+#if !defined(uint32)
+typedef unsigned int uint32;
+#endif
+#if !defined(uint8)
+typedef unsigned char uint8;
+#endif
 
 /* XHProf maintains a stack of entries being profiled. The memory for the entry
  * is passed by the layer that invokes BEGIN_PROFILING(), e.g. the hp_execute()
@@ -142,14 +195,21 @@ typedef unsigned char uint8;
  * profiled. */
 typedef struct hp_entry_t {
     char                   *name_hprof;                       /* function name */
-    int                     rlvl_hprof;        /* recursion level for function */
-    uint64                  tsc_start;         /* start value for TSC counter  */
-    long int                mu_start_hprof;                    /* memory usage */
-    long int                pmu_start_hprof;              /* peak memory usage */
-    struct rusage           ru_start_hprof;             /* user/sys time start */
+    int                    rlvl_hprof;        /* recursion level for function */
+    uint64                 tsc_start;         /* start value for TSC counter  */
+    long int               mu_start_hprof;                    /* memory usage */
+    long int               pmu_start_hprof;              /* peak memory usage */
+    struct rusage          ru_start_hprof;             /* user/sys time start */
     struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
-    uint8                   hash_code;     /* hash_code for the function name  */
+    uint8                  hash_code;     /* hash_code for the function name  */
 } hp_entry_t;
+
+typedef struct hp_ignored_function_map {
+    char **names;
+    uint8 filter[XHPROF_MAX_IGNORED_FUNCTIONS];
+} hp_ignored_function_map;
+
+typedef char* (*hp_trace_callback)(char *symbol, zend_execute_data *data TSRMLS_DC);
 
 /* Xhprof's global state.
  *
@@ -212,8 +272,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     HashTable *trace_callbacks;
 
     /* Table of ignored function names and their filter */
-    char  **ignored_function_names;
-    uint8   ignored_function_filter[XHPROF_IGNORED_FUNCTION_FILTER_SIZE];
+    hp_ignored_function_map *ignored_functions;
 
 ZEND_END_MODULE_GLOBALS(apm)
 
@@ -239,6 +298,81 @@ PHP_GINIT_FUNCTION(apm);
 #else
 #define APM_G(v) (apm_globals.v)
 #endif
+
+/**
+ * ***********************
+ * GLOBAL STATIC VARIABLES
+ * ***********************
+ */
+#if PHP_VERSION_ID < 50500
+/* Pointer to the original execute function */
+static ZEND_DLEXPORT void (*_zend_execute) (zend_op_array *ops TSRMLS_DC);
+
+/* Pointer to the origianl execute_internal function */
+static ZEND_DLEXPORT void (*_zend_execute_internal) (zend_execute_data *data, int ret TSRMLS_DC);
+#else
+/* Pointer to the original execute function */
+static void (*_zend_execute_ex) (zend_execute_data *execute_data TSRMLS_DC);
+
+/* Pointer to the origianl execute_internal function */
+static void (*_zend_execute_internal) (zend_execute_data *data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
+#endif
+
+/* Pointer to the original compile function */
+static zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type TSRMLS_DC);
+
+/* Pointer to the original compile string function (used by eval) */
+static zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename TSRMLS_DC);
+
+ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
+ZEND_DLEXPORT zend_op_array* hp_compile_string(zval *source_string, char *filename TSRMLS_DC);
+
+ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC);
+ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
+
+/* Bloom filter for function names to be ignored */
+#define INDEX_2_BYTE(index)  (index >> 3)
+#define INDEX_2_BIT(index)   (1 << (index & 0x7));
+
+/**
+ * ****************************
+ * STATIC FUNCTION DECLARATIONS
+ * ****************************
+ */
+static void hp_register_constants(INIT_FUNC_ARGS);
+
+static void hp_begin(long xhprof_flags TSRMLS_DC);
+static void hp_stop(TSRMLS_D);
+static void hp_end(TSRMLS_D);
+
+static inline uint64 cycle_timer();
+static double get_cpu_frequency();
+static void clear_frequencies();
+
+static void hp_free_the_free_list();
+static hp_entry_t *hp_fast_alloc_hprof_entry();
+static void hp_fast_free_hprof_entry(hp_entry_t *p);
+static inline uint8 hp_inline_hash(char * str);
+static void get_all_cpu_frequencies();
+static long get_us_interval(struct timeval *start, struct timeval *end);
+static void incr_us_interval(struct timeval *start, uint64 incr);
+
+static inline zval *hp_zval_at_key(char  *key,
+                                   zval  *values);
+static inline char **hp_strings_in_zval(zval  *values);
+static inline void hp_array_del(char **name_array);
+
+static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_DC);
+static void hp_init_trace_callbacks(TSRMLS_DC);
+
+/**
+ * *********************
+ * FUNCTION PROTOTYPES
+ * *********************
+ */
+int restore_cpu_affinity(cpu_set_t * prev_mask);
+int bind_to_cpu(uint32 cpu_id);
+
 
 extern ZEND_DECLARE_MODULE_GLOBALS(apm);
 
