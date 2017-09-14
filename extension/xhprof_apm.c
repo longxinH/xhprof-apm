@@ -162,6 +162,7 @@ PHP_MINIT_FUNCTION(xhprof_apm) {
 	APM_G(cur_cpu_id) = 0;
 
 	APM_G(stats_count) = NULL;
+	APM_G(trace_callbacks) = NULL;
 
 	/* no free hp_entry_t structures to start with */
 	APM_G(entry_free_list) = NULL;
@@ -193,11 +194,6 @@ PHP_MSHUTDOWN_FUNCTION(xhprof_apm) {
     APM_RESTORE_ZEND_HANDLE();
 
 	UNREGISTER_INI_ENTRIES();
-
-	if (APM_G(trace_callbacks)) {
-		zend_hash_destroy(APM_G(trace_callbacks));
-		pefree(APM_G(trace_callbacks), 1);
-	}
 
 	return SUCCESS;
 }
@@ -247,8 +243,21 @@ static inline uint8 hp_inline_hash(char *str) {
 	return res;
 }
 
+static void hp_parse_options_from_config(zval *config TSRMLS_DC) {
+	hp_clean_profiler_options_state(TSRMLS_C);
+
+	if (config == NULL) {
+		return;
+	}
+
+	zval *pzval;
+	pzval = hp_zval_at_key("ignored", config);
+	/* Set up filter of functions which may be ignored during profiling */
+	APM_G(ignored_functions) = hp_ignored_functions_init(hp_strings_in_zval(pzval));
+}
+
 static hp_ignored_function_map *hp_ignored_functions_init(char **names) {
-    if (names == NULL) {
+	if (names == NULL) {
         return NULL;
     }
 
@@ -324,7 +333,6 @@ void hp_init_profiler_state() {
 	bind_to_cpu((int) (rand() % APM_G(cpu_num)));
 
 	hp_init_trace_callbacks(TSRMLS_C);
-
 }
 
 /**
@@ -343,9 +351,19 @@ void hp_clean_profiler_state(TSRMLS_D) {
 	APM_G(ever_enabled) = 0;
 	APM_G(debug) = 0;
 
+	hp_clean_profiler_options_state(TSRMLS_C);
+}
+
+static void hp_clean_profiler_options_state(TSRMLS_D) {
 	/* Delete the array storing ignored function names */
-    hp_ignored_functions_clear(APM_G(ignored_functions));
-    APM_G(ignored_functions) = NULL;
+	hp_ignored_functions_clear(APM_G(ignored_functions));
+	APM_G(ignored_functions) = NULL;
+
+	if (APM_G(trace_callbacks)) {
+		zend_hash_destroy(APM_G(trace_callbacks));
+		FREE_HASHTABLE(APM_G(trace_callbacks));
+		APM_G(trace_callbacks) = NULL;
+	}
 }
 
 /**
@@ -357,10 +375,7 @@ void hp_clean_profiler_state(TSRMLS_D) {
  * @return total size of the function name returned in result_buf
  * @author veeve
  */
-static size_t hp_get_entry_name(hp_entry_t  *entry,
-						 char           *result_buf,
-						 size_t          result_len) {
-
+static size_t hp_get_entry_name(hp_entry_t *entry, char *result_buf, result_len) {
 	/* Validate result_len */
 	if (result_len <= 1) {
 		/* Insufficient result_bug. Bail! */
@@ -512,8 +527,7 @@ static char *hp_get_function_name(zend_execute_data *execute_data TSRMLS_DC) {
 	const char        *func = NULL;
 	const char        *cls = NULL;
 	char              *ret = NULL;
-	int                len;
-	zend_function      *curr_func;
+	zend_function     *curr_func;
 
 	if (!execute_data) {
 		return NULL;
@@ -1395,11 +1409,10 @@ static void hp_stop(TSRMLS_D) {
  *
  *  @author mpal
  **/
-static zval *hp_zval_at_key(char  *key,
-							zval  *values) {
+static zval *hp_zval_at_key(char *key, zval *values) {
 	zval *result = NULL;
 
-	if (values->type == IS_ARRAY) {
+	if (Z_TYPE_P(values) == IS_ARRAY) {
 		HashTable *ht;
 		zval     **value;
 		uint       len = strlen(key) + 1;
@@ -1420,7 +1433,7 @@ static zval *hp_zval_at_key(char  *key,
  *
  *  @author mpal
  **/
-static char **hp_strings_in_zval(zval  *values) {
+static char **hp_strings_in_zval(zval *values) {
 	char   **result;
 	size_t   count;
 	size_t   ix = 0;
@@ -1435,8 +1448,7 @@ static char **hp_strings_in_zval(zval  *values) {
 		ht    = Z_ARRVAL_P(values);
 		count = zend_hash_num_elements(ht);
 
-		if((result =
-					(char**)emalloc(sizeof(char*) * (count + 1))) == NULL) {
+		if ((result = (char**)emalloc(sizeof(char*) * (count + 1))) == NULL) {
 			return result;
 		}
 
@@ -1451,17 +1463,17 @@ static char **hp_strings_in_zval(zval  *values) {
 
 			type = zend_hash_get_current_key_ex(ht, &str, &len, &idx, 0, NULL);
 			/* Get the names stored in a standard array */
-			if(type == HASH_KEY_IS_LONG) {
+			if (type == HASH_KEY_IS_LONG) {
 				if ((zend_hash_get_current_data(ht, (void**)&data) == SUCCESS) &&
-					Z_TYPE_PP(data) == IS_STRING &&
-					strcmp(Z_STRVAL_PP(data), ROOT_SYMBOL)) { /* do not ignore "main" */
+					Z_TYPE_PP(data) == IS_STRING && strcmp(Z_STRVAL_PP(data), ROOT_SYMBOL)) {
+                    /* do not ignore "main" */
 					result[ix] = estrdup(Z_STRVAL_PP(data));
 					ix++;
 				}
 			}
 		}
-	} else if(values->type == IS_STRING) {
-		if((result = (char**)emalloc(sizeof(char*) * 2)) == NULL) {
+	} else if (Z_TYPE_P(values) == IS_STRING) {
+		if ((result = (char**)emalloc(sizeof(char*) * 2)) == NULL) {
 			return result;
 		}
 		result[0] = estrdup(Z_STRVAL_P(values));
@@ -1482,7 +1494,7 @@ static char **hp_strings_in_zval(zval  *values) {
 static inline void hp_array_del(char **name_array) {
 	if (name_array != NULL) {
 		int i = 0;
-		for(; name_array[i] != NULL && i < XHPROF_MAX_IGNORED_FUNCTIONS; i++) {
+		for (; name_array[i] != NULL && i < XHPROF_MAX_IGNORED_FUNCTIONS; i++) {
 			efree(name_array[i]);
 		}
 		efree(name_array);
@@ -1491,7 +1503,6 @@ static inline void hp_array_del(char **name_array) {
 
 static void hp_ini_parser_cb(zval *key, zval *value, zval *index, int callback_type, zval *arr TSRMLS_DC) {
 	zval *element;
-
 	switch (callback_type) {
 		case ZEND_INI_PARSER_ENTRY :
 			{
@@ -1831,21 +1842,18 @@ static char* hp_trace_callback_curl_exec(char *symbol, zend_execute_data *data T
     return result;
 }
 
-static void hp_free_trace_cb(void *p) {
+static inline void hp_free_trace_cb(void *p) {
 }
 
 static void hp_init_trace_callbacks(TSRMLS_D) {
 	hp_trace_callback callback;
 
-	if (APM_G(trace_callbacks)) {
-		return;
-	}
-
-	APM_G(trace_callbacks) = (HashTable *)pemalloc(sizeof(HashTable), 1);
+	ALLOC_HASHTABLE(APM_G(trace_callbacks));
 	if (!APM_G(trace_callbacks)) {
 		return;
 	}
-	zend_hash_init(APM_G(trace_callbacks), 16, NULL, (dtor_func_t) hp_free_trace_cb, 1);
+
+	zend_hash_init(APM_G(trace_callbacks), 16, NULL, (dtor_func_t)hp_free_trace_cb, 0);
 
     callback = hp_trace_callback_sql_query;
     register_trace_callback("PDO::exec", callback);
@@ -1862,7 +1870,6 @@ static void hp_init_trace_callbacks(TSRMLS_D) {
 
     //callback = hp_trace_callback_pdo_connect;
 	//register_trace_callback("PDO::__construct", callback);
-
 }
 
 zval *hp_request_query(uint type, char * name, uint len TSRMLS_DC) {
@@ -1938,9 +1945,9 @@ static zval *hp_get_export_data(zval *data, int debug) {
     array_init(result);
 
     zval *server = hp_request_query(TRACK_VARS_SERVER, NULL, 0 TSRMLS_CC);
-    zval *uri = hp_request_query(TRACK_VARS_SERVER, "REQUEST_URI", strlen("REQUEST_URI") TSRMLS_CC);
-    zval *ssl = hp_request_query(TRACK_VARS_SERVER, "HTTPS", strlen("HTTPS") TSRMLS_CC);
-    zval *server_name = hp_request_query(TRACK_VARS_SERVER, "SERVER_NAME", strlen("SERVER_NAME") TSRMLS_CC);
+    zval *uri = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("REQUEST_URI") TSRMLS_CC);
+    zval *ssl = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTPS") TSRMLS_CC);
+    zval *server_name = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("SERVER_NAME") TSRMLS_CC);
 	zval *get = hp_request_query(TRACK_VARS_GET, NULL, 0 TSRMLS_CC);
 
     if (Z_TYPE_P(ssl) == IS_NULL) {
@@ -2019,8 +2026,8 @@ static int hp_rshutdown_php(zval *data, int debug TSRMLS_DC) {
     spprintf(&path, 0, "%s", INI_STR("xhprof_apm.php_file"));
     if (!VCWD_REALPATH(path, realpath)) {
 		efree(path);
-		zval *document_root = hp_request_query(TRACK_VARS_SERVER, "DOCUMENT_ROOT", strlen("DOCUMENT_ROOT") TSRMLS_CC);
-		spprintf(&path, 0, "%s/%s", Z_STRVAL_P(document_root), INI_STR("xhprof_apm.php_file"));
+		zval *document_root = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("DOCUMENT_ROOT") TSRMLS_CC);
+		spprintf(&path, 0, "%s%c%s", Z_STRVAL_P(document_root), DEFAULT_SLASH, INI_STR("xhprof_apm.php_file"));
 		zval_ptr_dtor(&document_root);
 
         if (!VCWD_REALPATH(path, realpath)) {
@@ -2189,7 +2196,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 	long flags = 0;
 
 	if (SG(request_info).request_method) {
-		zval *self_curl = hp_request_query(TRACK_VARS_SERVER, "HTTP_USER_AGENT", strlen("HTTP_USER_AGENT") TSRMLS_CC);
+		zval *self_curl = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_USER_AGENT") TSRMLS_CC);
 		if (Z_TYPE_P(self_curl) == IS_STRING && strcmp(Z_STRVAL_P(self_curl), "Xhprof-apm") == 0) {
 			zval_ptr_dtor(&self_curl);
 			return SUCCESS;
@@ -2203,8 +2210,8 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 
 		if (!VCWD_REALPATH(config_ini, realpath)) {
 			efree(config_ini);
-			zval *document_root = hp_request_query(TRACK_VARS_SERVER, "DOCUMENT_ROOT", strlen("DOCUMENT_ROOT") TSRMLS_CC);
-			spprintf(&config_ini, 0, "%s/%s", Z_STRVAL_P(document_root), INI_STR("xhprof_apm.config_ini"));
+			zval *document_root = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("DOCUMENT_ROOT") TSRMLS_CC);
+			spprintf(&config_ini, 0, "%s%c%s", Z_STRVAL_P(document_root), DEFAULT_SLASH, INI_STR("xhprof_apm.config_ini"));
 			zval_ptr_dtor(&document_root);
 
 			if (!VCWD_REALPATH(config_ini, realpath)) {
@@ -2217,7 +2224,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 
 		struct stat sb;
 		zend_file_handle fh = {0};
-		zval *configs, *apm_config;
+		zval *configs, *apm_config, *pzval;
 
 		ALLOC_INIT_ZVAL(configs);
 
@@ -2239,22 +2246,21 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		}
 
 		apm_config = hp_zval_at_key("apm", configs);
-
 		if (!apm_config) {
 			zval_ptr_dtor(&configs);
 			return SUCCESS;
 		}
 
-		zval *zval_auto = hp_zval_at_key("auto", apm_config);
-		if (zval_auto) {
-			convert_to_long(zval_auto);
-			enable = Z_LVAL_P(zval_auto);
+		pzval = hp_zval_at_key("auto", apm_config);
+		if (pzval) {
+			convert_to_long(pzval);
+			enable = Z_LVAL_P(pzval);
 		}
 
-		zval *zval_debug = hp_zval_at_key("debug", apm_config);
-		if (zval_debug) {
-			convert_to_string(zval_debug);
-			zval *zval_param = hp_request_query(TRACK_VARS_GET, Z_STRVAL_P(zval_debug), Z_STRLEN_P(zval_debug));
+		pzval = hp_zval_at_key("debug", apm_config);
+		if (pzval) {
+			convert_to_string(pzval);
+			zval *zval_param = hp_request_query(TRACK_VARS_GET, Z_STRVAL_P(pzval), Z_STRLEN_P(pzval));
 			if (Z_TYPE_P(zval_param) != IS_NULL) {
 				APM_G(debug) = 1;
 				enable = 1;
@@ -2269,10 +2275,10 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		}
 
 		if (!APM_G(debug)) {
-			zval *zval_rate = hp_zval_at_key("rate", apm_config);
-			if (zval_rate) {
-				convert_to_long(zval_rate);
-				int sample_rate = Z_LVAL_P(zval_rate);
+			pzval = hp_zval_at_key("rate", apm_config);
+			if (pzval) {
+				convert_to_long(pzval);
+				int sample_rate = Z_LVAL_P(pzval);
 
 				if (!sample_rate) {
 					zval_ptr_dtor(&configs);
@@ -2289,20 +2295,14 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 			}
 		}
 
-		zval *zval_flags = hp_zval_at_key("flags", apm_config);
-		if (zval_flags) {
-			convert_to_long(zval_flags);
-			flags = Z_LVAL_P(zval_flags);
+		pzval = hp_zval_at_key("flags", apm_config);
+		if (pzval) {
+			convert_to_long(pzval);
+			flags = Z_LVAL_P(pzval);
 		}
 
-        zval *zval_ignored = hp_zval_at_key("ignored", apm_config);
-        if (zval_ignored) {
-            /* Set up filter of functions which may be ignored during profiling */
-            APM_G(ignored_functions) = hp_ignored_functions_init(hp_strings_in_zval(zval_ignored));
-        }
-
+		hp_parse_options_from_config(apm_config);
         hp_begin(flags TSRMLS_CC);
-
 		zval_ptr_dtor(&configs);
 	}
 

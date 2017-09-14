@@ -352,18 +352,20 @@ static void clear_frequencies();
 static void hp_free_the_free_list();
 static hp_entry_t *hp_fast_alloc_hprof_entry();
 static void hp_fast_free_hprof_entry(hp_entry_t *p);
-static inline uint8 hp_inline_hash(char * str);
+static inline uint8 hp_inline_hash(char *str);
 static void get_all_cpu_frequencies();
 static long get_us_interval(struct timeval *start, struct timeval *end);
 static void incr_us_interval(struct timeval *start, uint64 incr);
 
-static inline zval *hp_zval_at_key(char  *key,
-                                   zval  *values);
-static inline char **hp_strings_in_zval(zval  *values);
+static inline zval *hp_zval_at_key(char *key, zval *values);
+static inline char **hp_strings_in_zval(zval *values);
 static inline void hp_array_del(char **name_array);
+static void hp_clean_profiler_options_state(TSRMLS_D);
 
 static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_DC);
 static void hp_init_trace_callbacks(TSRMLS_DC);
+
+static hp_ignored_function_map *hp_ignored_functions_init(char **names);
 
 /**
  * *********************
