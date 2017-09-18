@@ -375,7 +375,7 @@ static void hp_clean_profiler_options_state(TSRMLS_D) {
  * @return total size of the function name returned in result_buf
  * @author veeve
  */
-static size_t hp_get_entry_name(hp_entry_t *entry, char *result_buf, result_len) {
+static size_t hp_get_entry_name(hp_entry_t *entry, char *result_buf, size_t result_len) {
 	/* Validate result_len */
 	if (result_len <= 1) {
 		/* Insufficient result_bug. Bail! */
@@ -644,37 +644,6 @@ void hp_inc_count(zval *counts, char *name, long count TSRMLS_DC) {
 	} else {
 		add_assoc_long(counts, name, count);
 	}
-}
-
-/**
- * Looksup the hash table for the given symbol
- * Initializes a new array() if symbol is not present
- *
- * @author kannan, veeve
- */
-zval * hp_hash_lookup(char *symbol  TSRMLS_DC) {
-	HashTable   *ht;
-	void        *data;
-	zval        *counts = (zval *) 0;
-
-	/* Bail if something is goofy */
-	if (!APM_G(stats_count) || !(ht = HASH_OF(APM_G(stats_count)))) {
-		return (zval *) 0;
-	}
-
-	/* Lookup our hash table */
-	if (zend_hash_find(ht, symbol, strlen(symbol) + 1, &data) == SUCCESS) {
-		/* Symbol already exists */
-		counts = *(zval **) data;
-	}
-	else {
-		/* Add symbol to hash table */
-		MAKE_STD_ZVAL(counts);
-		array_init(counts);
-		add_assoc_zval(APM_G(stats_count), symbol, counts);
-	}
-
-	return counts;
 }
 
 /**
@@ -1072,70 +1041,65 @@ void hp_mode_sampled_beginfn_cb(hp_entry_t **entries,
  */
 
 /**
- * XHPROF shared end function callback
- *
- * @author kannan
- */
-zval * hp_mode_shared_endfn_cb(hp_entry_t *top, char *symbol TSRMLS_DC) {
-	zval    *counts;
-	uint64   tsc_end;
-
-	/* Get end tsc counter */
-	tsc_end = cycle_timer();
-
-	/* Get the stat array */
-	if (!(counts = hp_hash_lookup(symbol TSRMLS_CC))) {
-		return (zval *) 0;
-	}
-
-	/* Bump stats in the counts hashtable */
-	hp_inc_count(counts, "ct", 1  TSRMLS_CC);
-
-	hp_inc_count(counts, "wt", get_us_from_tsc(tsc_end - top->tsc_start,
-											   APM_G(cpu_frequencies[APM_G(cur_cpu_id)])) TSRMLS_CC);
-	return counts;
-}
-
-/**
  * XHPROF_MODE_HIERARCHICAL's end function callback
  *
  * @author kannan
  */
-void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
-	hp_entry_t   *top = (*entries);
-	zval            *counts;
-	struct rusage    ru_end;
-	char             symbol[SCRATCH_BUF_LEN];
-	long int         mu_end;
-	long int         pmu_end;
+void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
+	hp_entry_t    *top = (*entries);
+    HashTable     *ht;
+	zval          *counts;
+	struct rusage ru_end;
+	char          symbol[SCRATCH_BUF_LEN];
+	long int      mu_end;
+	long int      pmu_end;
+    uint64        tsc_end;
+    double        wt;
+    void          *data;
 
-	/* Get the stat array */
-	hp_get_function_stack(top, 2, symbol, sizeof(symbol));
-	if (!(counts = hp_mode_shared_endfn_cb(top, symbol  TSRMLS_CC))) {
-		return;
-	}
+    /* Get end tsc counter */
+    tsc_end = cycle_timer();
+    wt = get_us_from_tsc(tsc_end - top->tsc_start, APM_G(cpu_frequencies[APM_G(cur_cpu_id)]));
 
-	if (APM_G(xhprof_flags) & XHPROF_FLAGS_CPU) {
-		/* Get CPU usage */
-		getrusage(RUSAGE_SELF, &ru_end);
+    ht = Z_ARRVAL_P(APM_G(stats_count));
+    /* Get the stat array */
+    hp_get_function_stack(top, 2, symbol, sizeof(symbol));
 
-		/* Bump CPU stats in the counts hashtable */
-		hp_inc_count(counts, "cpu", (get_us_interval(&(top->ru_start_hprof.ru_utime),
-													 &(ru_end.ru_utime)) +
-									 get_us_interval(&(top->ru_start_hprof.ru_stime),
-													 &(ru_end.ru_stime)))
-					 TSRMLS_CC);
-	}
+    /* Lookup our hash table */
+    if (zend_hash_find(ht, symbol, strlen(symbol) + 1, &data) == SUCCESS) {
+        /* Symbol already exists */
+        counts = *(zval **) data;
+    } else {
+        /* Add symbol to hash table */
+        MAKE_STD_ZVAL(counts);
+        array_init(counts);
+        add_assoc_zval(APM_G(stats_count), symbol, counts);
+    }
 
-	if (APM_G(xhprof_flags) & XHPROF_FLAGS_MEMORY) {
-		/* Get Memory usage */
-		mu_end  = zend_memory_usage(0 TSRMLS_CC);
-		pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
+    /* Bump stats in the counts hashtable */
+    hp_inc_count(counts, "ct", 1  TSRMLS_CC);
+    hp_inc_count(counts, "wt", wt TSRMLS_CC);
 
-		/* Bump Memory stats in the counts hashtable */
-		hp_inc_count(counts, "mu",  mu_end - top->mu_start_hprof    TSRMLS_CC);
-		hp_inc_count(counts, "pmu", pmu_end - top->pmu_start_hprof  TSRMLS_CC);
-	}
+    if (APM_G(xhprof_flags) & XHPROF_FLAGS_CPU) {
+        /* Get CPU usage */
+        getrusage(RUSAGE_SELF, &ru_end);
+
+        /* Bump CPU stats in the counts hashtable */
+        hp_inc_count(counts, "cpu", (get_us_interval(&(top->ru_start_hprof.ru_utime),
+                                                     &(ru_end.ru_utime)) +
+                                     get_us_interval(&(top->ru_start_hprof.ru_stime),
+                                                     &(ru_end.ru_stime))) TSRMLS_CC);
+    }
+
+    if (APM_G(xhprof_flags) & XHPROF_FLAGS_MEMORY) {
+        /* Get Memory usage */
+        mu_end  = zend_memory_usage(0 TSRMLS_CC);
+        pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
+
+        /* Bump Memory stats in the counts hashtable */
+        hp_inc_count(counts, "mu",  mu_end - top->mu_start_hprof    TSRMLS_CC);
+        hp_inc_count(counts, "pmu", pmu_end - top->pmu_start_hprof  TSRMLS_CC);
+    }
 }
 
 /**
@@ -1798,7 +1762,7 @@ static char* hp_trace_callback_pdo_statement_execute(char *symbol, zend_execute_
 
 static char* hp_trace_callback_curl_exec(char *symbol, zend_execute_data *data TSRMLS_DC) {
     char *result;
-    zval *func, *option, **ppzval, *retval = NULL;
+    zval *func, **ppzval, *retval = NULL;
     zval *arg = hp_get_execute_argument(data, 1);
 
     if (arg == NULL || Z_TYPE_P(arg) != IS_RESOURCE) {
