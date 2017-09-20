@@ -127,16 +127,16 @@ extern zend_module_entry xhprof_apm_module_entry;
   do {                                                                       \
     /* Use a hash code to filter most of the string comparisons. */          \
     uint8 hash_code  = hp_inline_hash(symbol);                               \
-    profile_curr = !hp_ignore_entry_work(hash_code, symbol);                 \
+    profile_curr = !hp_ignore_entry_work(hash_code, symbol TSRMLS_CC);                 \
     if (profile_curr) {                                                      \
         if (execute_data != NULL) {                                          \
             symbol = hp_get_trace_callback(symbol, execute_data TSRMLS_CC);  \
         }                                                                    \
-        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();                 \
+        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry(TSRMLS_C);                 \
         (cur_entry)->hash_code = hash_code;                                  \
         (cur_entry)->name_hprof = symbol;                                    \
         (cur_entry)->prev_hprof = (*(entries));                              \
-        hp_mode_hier_beginfn_cb((entries), (cur_entry));                     \
+        hp_mode_hier_beginfn_cb((entries), (cur_entry) TSRMLS_CC);                     \
         /* Update entries linked list */                                     \
         (*(entries)) = (cur_entry);                                          \
     }                                                                        \
@@ -164,7 +164,7 @@ extern zend_module_entry xhprof_apm_module_entry;
       hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);           \
       /* Free top entry and update entries linked list */               \
       (*(entries)) = (*(entries))->prev_hprof;                          \
-      hp_fast_free_hprof_entry(cur_entry);                              \
+      hp_fast_free_hprof_entry(cur_entry TSRMLS_CC);                              \
     }                                                                   \
   } while (0)
 
@@ -347,13 +347,13 @@ static void hp_end(TSRMLS_D);
 
 static inline uint64 cycle_timer();
 static double get_cpu_frequency();
-static void clear_frequencies();
+static void clear_frequencies(TSRMLS_D);
 
-static void hp_free_the_free_list();
-static hp_entry_t *hp_fast_alloc_hprof_entry();
-static void hp_fast_free_hprof_entry(hp_entry_t *p);
+static void hp_free_the_free_list(TSRMLS_D);
+static hp_entry_t *hp_fast_alloc_hprof_entry(TSRMLS_D);
+static void hp_fast_free_hprof_entry(hp_entry_t *p TSRMLS_DC);
 static inline uint8 hp_inline_hash(char *str);
-static void get_all_cpu_frequencies();
+static void get_all_cpu_frequencies(TSRMLS_D);
 static long get_us_interval(struct timeval *start, struct timeval *end);
 static void incr_us_interval(struct timeval *start, uint64 incr);
 
@@ -363,7 +363,7 @@ static inline void hp_array_del(char **name_array);
 static void hp_clean_profiler_options_state(TSRMLS_D);
 
 static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_DC);
-static void hp_init_trace_callbacks(TSRMLS_DC);
+static void hp_init_trace_callbacks(TSRMLS_D);
 
 static hp_ignored_function_map *hp_ignored_functions_init(char **names);
 
@@ -372,8 +372,8 @@ static hp_ignored_function_map *hp_ignored_functions_init(char **names);
  * FUNCTION PROTOTYPES
  * *********************
  */
-int restore_cpu_affinity(cpu_set_t * prev_mask);
-int bind_to_cpu(uint32 cpu_id);
+int restore_cpu_affinity(cpu_set_t * prev_mask TSRMLS_DC);
+int bind_to_cpu(uint32 cpu_id TSRMLS_DC);
 
 
 extern ZEND_DECLARE_MODULE_GLOBALS(apm);

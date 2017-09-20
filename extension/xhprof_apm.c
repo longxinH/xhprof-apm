@@ -186,10 +186,10 @@ PHP_MINIT_FUNCTION(xhprof_apm) {
  */
 PHP_MSHUTDOWN_FUNCTION(xhprof_apm) {
 	/* Make sure cpu_frequencies is free'ed. */
-	clear_frequencies();
+	clear_frequencies(TSRMLS_C);
 
 	/* free any remaining items in the free list */
-	hp_free_the_free_list();
+	hp_free_the_free_list(TSRMLS_C);
 
     APM_RESTORE_ZEND_HANDLE();
 
@@ -306,7 +306,7 @@ int hp_ignored_functions_filter_collision(hp_ignored_function_map *map, uint8 ha
  *
  * @author kannan, veeve
  */
-void hp_init_profiler_state() {
+void hp_init_profiler_state(TSRMLS_D) {
 	/* Setup globals */
 	if (!APM_G(ever_enabled)) {
 		APM_G(ever_enabled)  = 1;
@@ -325,12 +325,12 @@ void hp_init_profiler_state() {
      * to initialize, (5 milisecond per logical cpu right now), therefore we
      * calculate them lazily. */
 	if (APM_G(cpu_frequencies) == NULL) {
-		get_all_cpu_frequencies();
-		restore_cpu_affinity(&APM_G(prev_mask));
+		get_all_cpu_frequencies(TSRMLS_C);
+		restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
 	}
 
 	/* bind to a random cpu so that we can use rdtsc instruction. */
-	bind_to_cpu((int) (rand() % APM_G(cpu_num)));
+	bind_to_cpu((int) (rand() % APM_G(cpu_num)) TSRMLS_CC);
 
 	hp_init_trace_callbacks(TSRMLS_C);
 }
@@ -407,7 +407,7 @@ static size_t hp_get_entry_name(hp_entry_t *entry, char *result_buf, size_t resu
  *
  * @author mpal
  */
-static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func) {
+static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func TSRMLS_DC) {
 	if (APM_G(ignored_functions) == NULL) {
 		return 0;
 	}
@@ -569,7 +569,7 @@ static char *hp_get_function_name(zend_execute_data *execute_data TSRMLS_DC) {
 /**
  * Free any items in the free list.
  */
-static void hp_free_the_free_list() {
+static void hp_free_the_free_list(TSRMLS_D) {
 	hp_entry_t *p = APM_G(entry_free_list);
 	hp_entry_t *cur;
 
@@ -588,7 +588,7 @@ static void hp_free_the_free_list() {
  *
  * @author kannan
  */
-static hp_entry_t *hp_fast_alloc_hprof_entry() {
+static hp_entry_t *hp_fast_alloc_hprof_entry(TSRMLS_D) {
 	hp_entry_t *p;
 
 	p = APM_G(entry_free_list);
@@ -608,7 +608,7 @@ static hp_entry_t *hp_fast_alloc_hprof_entry() {
  *
  * @author kannan
  */
-static void hp_fast_free_hprof_entry(hp_entry_t *p) {
+static void hp_fast_free_hprof_entry(hp_entry_t *p TSRMLS_DC) {
 
 	/* we use/overload the prev_hprof field in the structure to link entries in
      * the free list. */
@@ -765,7 +765,7 @@ static inline uint64 cycle_timer() {
  *
  * @author cjiang
  */
-int bind_to_cpu(uint32 cpu_id) {
+int bind_to_cpu(uint32 cpu_id TSRMLS_DC) {
 	cpu_set_t new_mask;
 
 	CPU_ZERO(&new_mask);
@@ -858,7 +858,7 @@ static double get_cpu_frequency() {
  *
  * @author cjiang
  */
-static void get_all_cpu_frequencies() {
+static void get_all_cpu_frequencies(TSRMLS_D) {
 	int id;
 	double frequency;
 
@@ -870,8 +870,8 @@ static void get_all_cpu_frequencies() {
 	/* Iterate over all cpus found on the machine. */
 	for (id = 0; id < APM_G(cpu_num); ++id) {
 		/* Only get the previous cpu affinity mask for the first call. */
-		if (bind_to_cpu(id)) {
-			clear_frequencies();
+		if (bind_to_cpu(id TSRMLS_CC)) {
+			clear_frequencies(TSRMLS_C);
 			return;
 		}
 
@@ -881,7 +881,7 @@ static void get_all_cpu_frequencies() {
 
 		frequency = get_cpu_frequency();
 		if (frequency == 0.0) {
-			clear_frequencies();
+			clear_frequencies(TSRMLS_C);
 			return;
 		}
 		APM_G(cpu_frequencies[id]) = frequency;
@@ -897,7 +897,7 @@ static void get_all_cpu_frequencies() {
  *
  * @author cjiang
  */
-int restore_cpu_affinity(cpu_set_t * prev_mask) {
+int restore_cpu_affinity(cpu_set_t * prev_mask TSRMLS_DC) {
 	if (SET_AFFINITY(0, sizeof(cpu_set_t), prev_mask) < 0) {
 		perror("restore setaffinity");
 		return -1;
@@ -912,12 +912,12 @@ int restore_cpu_affinity(cpu_set_t * prev_mask) {
  *
  * @author cjiang
  */
-static void clear_frequencies() {
+static void clear_frequencies(TSRMLS_D) {
 	if (APM_G(cpu_frequencies)) {
 		free(APM_G(cpu_frequencies));
 		APM_G(cpu_frequencies) = NULL;
 	}
-	restore_cpu_affinity(&APM_G(prev_mask));
+	restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
 }
 
 /**
@@ -986,7 +986,7 @@ void hp_mode_sampled_init_cb(TSRMLS_D) {
  *
  * @author kannan
  */
-void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current)
+void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC)
 {
 	hp_entry_t   *p;
     /* This symbol's recursive level */
@@ -1310,7 +1310,7 @@ static void hp_begin(long xhprof_flags TSRMLS_DC) {
 		APM_G(xhprof_flags) = (uint32)xhprof_flags;
 
 		/* one time initializations */
-		hp_init_profiler_state();
+		hp_init_profiler_state(TSRMLS_C);
 
         APM_G(root) = estrdup(ROOT_SYMBOL);
 
@@ -1330,7 +1330,7 @@ static void hp_end(TSRMLS_D) {
 
     /* Stop profiler if enabled */
     if (APM_G(enabled)) {
-        hp_stop();
+        hp_stop(TSRMLS_C);
     }
 
     /* Clean up state */
@@ -1350,7 +1350,7 @@ static void hp_stop(TSRMLS_D) {
 	}
 
 	/* Resore cpu affinity. */
-	restore_cpu_affinity(&APM_G(prev_mask));
+	restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
 
     if (APM_G(root)) {
         efree(APM_G(root));
@@ -1588,7 +1588,7 @@ static char *hp_get_trace_callback(char* symbol, zend_execute_data *data TSRMLS_
     return result;
 }
 
-static zval *hp_pcre_match(char *pattern, int len, zval *data) {
+static zval *hp_pcre_match(char *pattern, int len, zval *data TSRMLS_DC) {
 	zval matches, *subparts;
 	pcre_cache_entry *pce_regexp;
 
@@ -1610,7 +1610,7 @@ static zval *hp_pcre_match(char *pattern, int len, zval *data) {
     return subparts;
 }
 
-static char* hp_pcre_replace(char *pattern, int len, zval* repl, zval *data, int limit) {
+static char* hp_pcre_replace(char *pattern, int len, zval* repl, zval *data, int limit TSRMLS_DC) {
 	int res_len, rep_cnt = 0;
 	zval *subparts;
 	char *res;
@@ -1690,7 +1690,7 @@ static char* hp_trace_callback_pdo_statement_execute(char *symbol, zend_execute_
 	char *result;
 	char *pattern_str = NULL;
 	int pattern_len;
-	pdo_stmt_t *stmt = (pdo_stmt_t*)zend_object_store_get_object(data->object);
+	pdo_stmt_t *stmt = (pdo_stmt_t*)zend_object_store_get_object(data->object TSRMLS_CC);
     zval *arg = hp_get_execute_argument(data, 1);
 
 	if (arg == NULL || Z_TYPE_P(arg) != IS_ARRAY) {
@@ -1737,7 +1737,7 @@ static char* hp_trace_callback_pdo_statement_execute(char *symbol, zend_execute_
             MAKE_STD_ZVAL(repl);
             ZVAL_STRINGL(repl, Z_STRVAL_PP(ppzval), Z_STRLEN_PP(ppzval), 1);
 
-			char *repl_str = hp_pcre_replace(pattern_str, pattern_len, repl, sql_query, 1);
+			char *repl_str = hp_pcre_replace(pattern_str, pattern_len, repl, sql_query, 1 TSRMLS_CC);
 
             if (repl_str != NULL) {
                 zval_ptr_dtor(&sql_query);
@@ -1897,7 +1897,7 @@ zval *hp_request_query(uint type, char * name, uint len TSRMLS_DC) {
     return *ret;
 }
 
-static zval *hp_get_export_data(zval *data, int debug) {
+static zval *hp_get_export_data(zval *data, int debug TSRMLS_DC) {
     zval *meta, *result, *root, *repl, *pzurl;
 	char *scheme, *url;
     int request_date;
@@ -1932,7 +1932,7 @@ static zval *hp_get_export_data(zval *data, int debug) {
     MAKE_STD_ZVAL(pzurl);
     ZVAL_STRING(pzurl, url, 1);
 
-    char *simple_url = hp_pcre_replace("(=[^&]+)", sizeof("(=[^&]+)") - 1, repl, pzurl, -1);
+    char *simple_url = hp_pcre_replace("(=[^&]+)", sizeof("(=[^&]+)") - 1, repl, pzurl, -1 TSRMLS_CC);
 
     add_assoc_string_ex(meta, ZEND_STRS("url"), url, 1);
     add_assoc_string_ex(meta, ZEND_STRS("simple_url"), simple_url, 1);
@@ -2057,7 +2057,7 @@ static int hp_rshutdown_php(zval *data, int debug TSRMLS_DC) {
 #endif
 
         zend_try {
-            zval *export_data = hp_get_export_data(data, debug);
+            zval *export_data = hp_get_export_data(data, debug TSRMLS_CC);
             ZEND_SET_SYMBOL(EG(active_symbol_table), "_apm_export", export_data);
             zend_execute(op_array TSRMLS_CC);
         } zend_catch {
@@ -2103,7 +2103,7 @@ static int hp_rshutdown_curl(zval *data, int debug TSRMLS_DC) {
 	}
 
 	smart_str buf = {0};
-	zval *export_data = hp_get_export_data(data, debug);
+	zval *export_data = hp_get_export_data(data, debug TSRMLS_CC);
 
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3))
 	php_json_encode(&buf, export_data TSRMLS_CC);
@@ -2224,7 +2224,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		pzval = hp_zval_at_key("debug", apm_config);
 		if (pzval) {
 			convert_to_string(pzval);
-			zval *zval_param = hp_request_query(TRACK_VARS_GET, Z_STRVAL_P(pzval), Z_STRLEN_P(pzval));
+			zval *zval_param = hp_request_query(TRACK_VARS_GET, Z_STRVAL_P(pzval), Z_STRLEN_P(pzval) TSRMLS_CC);
 			if (Z_TYPE_P(zval_param) != IS_NULL) {
 				APM_G(debug) = 1;
 				enable = 1;
@@ -2265,7 +2265,7 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 			flags = Z_LVAL_P(pzval);
 		}
 
-		hp_parse_options_from_config(apm_config);
+		hp_parse_options_from_config(apm_config TSRMLS_CC);
         hp_begin(flags TSRMLS_CC);
 		zval_ptr_dtor(&configs);
 	}
