@@ -423,6 +423,8 @@ static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func TSRMLS_D
 			}
 		}
 	}
+
+	return 0;
 }
 
 /**
