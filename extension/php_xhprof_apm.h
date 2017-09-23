@@ -50,28 +50,20 @@ extern zend_module_entry xhprof_apm_module_entry;
 /* Size of a temp scratch buffer            */
 #define SCRATCH_BUF_LEN            512
 
-/* Various XHPROF modes. If you are adding a new mode, register the appropriate
- * callbacks in hp_begin() */
-#define XHPROF_MODE_HIERARCHICAL            1
-#define XHPROF_MODE_SAMPLED            620002      /* Rockfort's zip code */
-
 /* Hierarchical profiling flags.
  *
  * Note: Function call counts and wall (elapsed) time are always profiled.
  * The following optional flags can be used to control other aspects of
  * profiling.
  */
-#define XHPROF_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
-#define XHPROF_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
-#define XHPROF_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
-
-/* Constants for XHPROF_MODE_SAMPLED        */
-#define XHPROF_SAMPLING_INTERVAL       100000      /* In microsecs        */
+#define APM_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
+#define APM_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
+#define APM_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
 
 /* Constant for ignoring functions, transparent to hierarchical profile */
-#define XHPROF_MAX_IGNORED_FUNCTIONS  256
-#define XHPROF_IGNORED_FUNCTION_FILTER_SIZE                           \
-               ((XHPROF_MAX_IGNORED_FUNCTIONS + 7)/8)
+#define APM_MAX_IGNORED_FUNCTIONS  256
+#define APM_IGNORED_FUNCTION_FILTER_SIZE                           \
+               ((APM_MAX_IGNORED_FUNCTIONS + 7)/8)
 
 #if PHP_VERSION_ID > 50500
 #define APM_STORE_ZEND_HANDLE() \
@@ -160,8 +152,6 @@ extern zend_module_entry xhprof_apm_module_entry;
       /* 'hp_mode_common_endfn' in the profiling results.      */       \
       hp_mode_hier_endfn_cb((entries) TSRMLS_CC);                       \
       cur_entry = (*(entries));                                         \
-      /* Call the universal callback */                                 \
-      hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);           \
       /* Free top entry and update entries linked list */               \
       (*(entries)) = (*(entries))->prev_hprof;                          \
       hp_fast_free_hprof_entry(cur_entry TSRMLS_CC);                              \
@@ -197,16 +187,16 @@ typedef struct hp_entry_t {
     char                   *name_hprof;                       /* function name */
     int                    rlvl_hprof;        /* recursion level for function */
     uint64                 tsc_start;         /* start value for TSC counter  */
+    uint64                 cpu_start;
     long int               mu_start_hprof;                    /* memory usage */
     long int               pmu_start_hprof;              /* peak memory usage */
-    struct rusage          ru_start_hprof;             /* user/sys time start */
     struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
     uint8                  hash_code;     /* hash_code for the function name  */
 } hp_entry_t;
 
 typedef struct hp_ignored_function_map {
     char **names;
-    uint8 filter[XHPROF_MAX_IGNORED_FUNCTIONS];
+    uint8 filter[APM_MAX_IGNORED_FUNCTIONS];
 } hp_ignored_function_map;
 
 typedef char* (*hp_trace_callback)(char *symbol, zend_execute_data *data TSRMLS_DC);
@@ -235,29 +225,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     /* freelist of hp_entry_t chunks for reuse... */
     hp_entry_t      *entry_free_list;
 
-    /*       ----------   Mode specific attributes:  -----------       */
-
-    /* Global to track the time of the last sample in time and ticks */
-    struct timeval   last_sample_time;
-    uint64           last_sample_tsc;
-    /* XHPROF_SAMPLING_INTERVAL in ticks */
-    uint64           sampling_interval_tsc;
-
-    /* This array is used to store cpu frequencies for all available logical
-     * cpus.  For now, we assume the cpu frequencies will not change for power
-     * saving or other reasons. If we need to worry about that in the future, we
-     * can use a periodical timer to re-calculate this arrary every once in a
-     * while (for example, every 1 or 5 seconds). */
-    double *cpu_frequencies;
-
-    /* The number of logical CPUs this machine has. */
-    uint32 cpu_num;
-
-    /* The saved cpu affinity. */
-    cpu_set_t prev_mask;
-
-    /* The cpu id current process is bound to. (default 0) */
-    uint32 cur_cpu_id;
+    double timebase_factor;
 
     /* XHProf flags */
     uint32 xhprof_flags;
@@ -346,16 +314,12 @@ static void hp_stop(TSRMLS_D);
 static void hp_end(TSRMLS_D);
 
 static inline uint64 cycle_timer();
-static double get_cpu_frequency();
-static void clear_frequencies(TSRMLS_D);
 
 static void hp_free_the_free_list(TSRMLS_D);
 static hp_entry_t *hp_fast_alloc_hprof_entry(TSRMLS_D);
 static void hp_fast_free_hprof_entry(hp_entry_t *p TSRMLS_DC);
 static inline uint8 hp_inline_hash(char *str);
-static void get_all_cpu_frequencies(TSRMLS_D);
-static long get_us_interval(struct timeval *start, struct timeval *end);
-static void incr_us_interval(struct timeval *start, uint64 incr);
+static double get_timebase_factor();
 
 static inline zval *hp_zval_at_key(char *key, zval *values);
 static inline char **hp_strings_in_zval(zval *values);
@@ -366,15 +330,6 @@ static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_
 static void hp_init_trace_callbacks(TSRMLS_D);
 
 static hp_ignored_function_map *hp_ignored_functions_init(char **names);
-
-/**
- * *********************
- * FUNCTION PROTOTYPES
- * *********************
- */
-int restore_cpu_affinity(cpu_set_t * prev_mask TSRMLS_DC);
-int bind_to_cpu(uint32 cpu_id TSRMLS_DC);
-
 
 extern ZEND_DECLARE_MODULE_GLOBALS(apm);
 

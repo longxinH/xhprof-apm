@@ -28,44 +28,10 @@
 #include <unistd.h>
 #include <curl/curl.h>
 
-#ifdef linux
-/* To enable CPU_ZERO and CPU_SET, etc.     */
-# define _GNU_SOURCE
+#if __APPLE__
+#include <mach/mach_init.h>
+#include <mach/mach_time.h>
 #endif
-
-#ifdef __FreeBSD__
-# if __FreeBSD_version >= 700110
-#   include <sys/resource.h>
-#   include <sys/cpuset.h>
-#   define cpu_set_t cpuset_t
-#   define SET_AFFINITY(pid, size, mask) \
-           cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, size, mask)
-#   define GET_AFFINITY(pid, size, mask) \
-           cpuset_getaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, size, mask)
-# else
-#   error "This version of FreeBSD does not support cpusets"
-# endif /* __FreeBSD_version */
-#elif __APPLE__
-/*
- * Patch for compiling in Mac OS X Leopard
- * @author Svilen Spasov <s.spasov@gmail.com>
- */
-#    include <mach/mach_init.h>
-#    include <mach/thread_policy.h>
-#    define cpu_set_t thread_affinity_policy_data_t
-#    define CPU_SET(cpu_id, new_mask) \
-        (*(new_mask)).affinity_tag = (cpu_id + 1)
-#    define CPU_ZERO(new_mask)                 \
-        (*(new_mask)).affinity_tag = THREAD_AFFINITY_TAG_NULL
-#   define SET_AFFINITY(pid, size, mask)       \
-        thread_policy_set(mach_thread_self(), THREAD_AFFINITY_POLICY, mask, \
-                          THREAD_AFFINITY_POLICY_COUNT)
-#else
-/* For sched_getaffinity, sched_setaffinity */
-# include <sched.h>
-# define SET_AFFINITY(pid, size, mask) sched_setaffinity(0, size, mask)
-# define GET_AFFINITY(pid, size, mask) sched_getaffinity(0, size, mask)
-#endif /* __FreeBSD__ */
 
 #include "ext/standard/info.h"
 #include "php_xhprof_apm.h"
@@ -130,6 +96,7 @@ PHP_GINIT_FUNCTION(apm)
 	apm_globals->trace_callbacks = NULL;
     apm_globals->ignored_functions = NULL;
 	apm_globals->debug = 0;
+	apm_globals->timebase_factor = get_timebase_factor();
 }
 
 /**
@@ -144,22 +111,7 @@ PHP_MINIT_FUNCTION(xhprof_apm) {
 
 	hp_register_constants(INIT_FUNC_ARGS_PASSTHRU);
 
-	/* Get the number of available logical CPUs. */
-	APM_G(cpu_num) = sysconf(_SC_NPROCESSORS_CONF);
-
-	/* Get the cpu affinity mask. */
-#ifndef __APPLE__
-	if (GET_AFFINITY(0, sizeof(cpu_set_t), &APM_G(prev_mask)) < 0) {
-    perror("getaffinity");
-    return FAILURE;
-  }
-#else
-	CPU_ZERO(&(APM_G(prev_mask)));
-#endif
-
-	/* Initialize cpu_frequencies and cur_cpu_id. */
-	APM_G(cpu_frequencies) = NULL;
-	APM_G(cur_cpu_id) = 0;
+    APM_G(timebase_factor) = get_timebase_factor();
 
 	APM_G(stats_count) = NULL;
 	APM_G(trace_callbacks) = NULL;
@@ -185,9 +137,6 @@ PHP_MINIT_FUNCTION(xhprof_apm) {
  * Module shutdown callback.
  */
 PHP_MSHUTDOWN_FUNCTION(xhprof_apm) {
-	/* Make sure cpu_frequencies is free'ed. */
-	clear_frequencies(TSRMLS_C);
-
 	/* free any remaining items in the free list */
 	hp_free_the_free_list(TSRMLS_C);
 
@@ -206,15 +155,15 @@ PHP_MSHUTDOWN_FUNCTION(xhprof_apm) {
 
 static void hp_register_constants(INIT_FUNC_ARGS) {
 	REGISTER_LONG_CONSTANT("APM_FLAGS_NO_BUILTINS",
-						   XHPROF_FLAGS_NO_BUILTINS,
+						   APM_FLAGS_NO_BUILTINS,
 						   CONST_CS | CONST_PERSISTENT);
 
 	REGISTER_LONG_CONSTANT("APM_FLAGS_CPU",
-						   XHPROF_FLAGS_CPU,
+						   APM_FLAGS_CPU,
 						   CONST_CS | CONST_PERSISTENT);
 
 	REGISTER_LONG_CONSTANT("APM_FLAGS_MEMORY",
-						   XHPROF_FLAGS_MEMORY,
+                           APM_FLAGS_MEMORY,
 						   CONST_CS | CONST_PERSISTENT);
 }
 
@@ -266,7 +215,7 @@ static hp_ignored_function_map *hp_ignored_functions_init(char **names) {
     function_map = emalloc(sizeof(hp_ignored_function_map));
     function_map->names = names;
 
-    memset(function_map->filter, 0, XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
+    memset(function_map->filter, 0, APM_IGNORED_FUNCTION_FILTER_SIZE);
 
     int i = 0;
     for(; names[i] != NULL; i++) {
@@ -287,7 +236,7 @@ static void hp_ignored_functions_clear(hp_ignored_function_map *map) {
     hp_array_del(map->names);
     map->names = NULL;
 
-    memset(map->filter, 0, XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
+    memset(map->filter, 0, APM_IGNORED_FUNCTION_FILTER_SIZE);
     efree(map);
 }
 
@@ -320,17 +269,6 @@ void hp_init_profiler_state(TSRMLS_D) {
 
 	MAKE_STD_ZVAL(APM_G(stats_count));
 	array_init(APM_G(stats_count));
-
-	/* NOTE(cjiang): some fields such as cpu_frequencies take relatively longer
-     * to initialize, (5 milisecond per logical cpu right now), therefore we
-     * calculate them lazily. */
-	if (APM_G(cpu_frequencies) == NULL) {
-		get_all_cpu_frequencies(TSRMLS_C);
-		restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
-	}
-
-	/* bind to a random cpu so that we can use rdtsc instruction. */
-	bind_to_cpu((int) (rand() % APM_G(cpu_num)) TSRMLS_CC);
 
 	hp_init_trace_callbacks(TSRMLS_C);
 }
@@ -672,72 +610,6 @@ void hp_trunc_time(struct timeval *tv,
 }
 
 /**
- * Sample the stack. Add it to the stats_count global.
- *
- * @param  tv            current time
- * @param  entries       func stack as linked list of hp_entry_t
- * @return void
- * @author veeve
- */
-void hp_sample_stack(hp_entry_t  **entries  TSRMLS_DC) {
-	char key[SCRATCH_BUF_LEN];
-	char symbol[SCRATCH_BUF_LEN * 1000];
-
-	/* Build key */
-	snprintf(key, sizeof(key),
-			 "%d.%06d",
-			 APM_G(last_sample_time).tv_sec,
-			 APM_G(last_sample_time).tv_usec);
-
-	/* Init stats in the global stats_count hashtable */
-	hp_get_function_stack(*entries,
-						  INT_MAX,
-						  symbol,
-						  sizeof(symbol));
-
-	add_assoc_string(APM_G(stats_count),
-					 key,
-					 symbol,
-					 1);
-	return;
-}
-
-/**
- * Checks to see if it is time to sample the stack.
- * Calls hp_sample_stack() if its time.
- *
- * @param  entries        func stack as linked list of hp_entry_t
- * @param  last_sample    time the last sample was taken
- * @param  sampling_intr  sampling interval in microsecs
- * @return void
- * @author veeve
- */
-void hp_sample_check(hp_entry_t **entries  TSRMLS_DC) {
-	/* Validate input */
-	if (!entries || !(*entries)) {
-		return;
-	}
-
-	/* See if its time to sample.  While loop is to handle a single function
-     * taking a long time and passing several sampling intervals. */
-	while ((cycle_timer() - APM_G(last_sample_tsc))
-		   > APM_G(sampling_interval_tsc)) {
-
-		/* bump last_sample_tsc */
-		APM_G(last_sample_tsc) += APM_G(sampling_interval_tsc);
-
-		/* bump last_sample_time - HAS TO BE UPDATED BEFORE calling hp_sample_stack */
-		incr_us_interval(&APM_G(last_sample_time), XHPROF_SAMPLING_INTERVAL);
-
-		/* sample the stack */
-		hp_sample_stack(entries  TSRMLS_CC);
-	}
-
-	return;
-}
-
-
-/**
  * ***********************
  * High precision timer related functions.
  * ***********************
@@ -750,56 +622,33 @@ void hp_sample_check(hp_entry_t **entries  TSRMLS_DC) {
  * @author cjiang
  */
 static inline uint64 cycle_timer() {
-	uint32 __a,__d;
-	uint64 val;
-	asm volatile("rdtsc" : "=a" (__a), "=d" (__d));
-	(val) = ((uint64)__a) | (((uint64)__d)<<32);
-	return val;
+#ifdef __APPLE__
+    return mach_absolute_time();
+#else
+    struct timespec s;
+    clock_gettime(CLOCK_MONOTONIC, &s);
+
+    return s.tv_sec * 1000000 + s.tv_nsec / 1000;
+#endif
 }
 
 /**
- * Bind the current process to a specified CPU. This function is to ensure that
- * the OS won't schedule the process to different processors, which would make
- * values read by rdtsc unreliable.
- *
- * @param uint32 cpu_id, the id of the logical cpu to be bound to.
- * @return int, 0 on success, and -1 on failure.
- *
- * @author cjiang
+ * Get the current real CPU clock timer
  */
-int bind_to_cpu(uint32 cpu_id TSRMLS_DC) {
-	cpu_set_t new_mask;
+static uint64 cpu_timer() {
+#if defined(CLOCK_PROCESS_CPUTIME_ID)
+    struct timespec s;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &s);
 
-	CPU_ZERO(&new_mask);
-	CPU_SET(cpu_id, &new_mask);
+    return s.tv_sec * 1000000 + s.tv_nsec / 1000;
+#else
+    struct rusage ru;
 
-	if (SET_AFFINITY(0, sizeof(cpu_set_t), &new_mask) < 0) {
-		perror("setaffinity");
-		return -1;
-	}
+    getrusage(RUSAGE_SELF, &ru);
 
-	/* record the cpu_id the process is bound to. */
-	APM_G(cur_cpu_id) = cpu_id;
-
-	return 0;
-}
-
-/**
- * Get time delta in microseconds.
- */
-static long get_us_interval(struct timeval *start, struct timeval *end) {
-	return (((end->tv_sec - start->tv_sec) * 1000000)
-			+ (end->tv_usec - start->tv_usec));
-}
-
-/**
- * Incr time with the given microseconds.
- */
-static void incr_us_interval(struct timeval *start, uint64 incr) {
-	incr += (start->tv_sec * 1000000 + start->tv_usec);
-	start->tv_sec  = incr/1000000;
-	start->tv_usec = incr%1000000;
-	return;
+    return ru.ru_utime.tv_sec * 1000000 + ru.ru_utime.tv_usec +
+        ru.ru_stime.tv_sec * 1000000 + ru.ru_stime.tv_usec;
+#endif
 }
 
 /**
@@ -811,8 +660,19 @@ static void incr_us_interval(struct timeval *start, uint64 incr) {
  *
  * @author cjiang
  */
-static inline double get_us_from_tsc(uint64 count, double cpu_frequency) {
-	return count / cpu_frequency;
+static inline double get_us_from_tsc(uint64 count TSRMLS_DC) {
+	return count / APM_G(timebase_factor);
+}
+
+static double get_timebase_factor()
+{
+#ifdef __APPLE__
+    mach_timebase_info_data_t sTimebaseInfo;
+    (void) mach_timebase_info(&sTimebaseInfo);
+    return (sTimebaseInfo.numer / sTimebaseInfo.denom) * 1000;
+#else
+	return 1.0;
+#endif
 }
 
 /**
@@ -827,155 +687,6 @@ static inline double get_us_from_tsc(uint64 count, double cpu_frequency) {
 static inline uint64 get_tsc_from_us(uint64 usecs, double cpu_frequency) {
 	return (uint64) (usecs * cpu_frequency);
 }
-
-/**
- * This is a microbenchmark to get cpu frequency the process is running on. The
- * returned value is used to convert TSC counter values to microseconds.
- *
- * @return double.
- * @author cjiang
- */
-static double get_cpu_frequency() {
-	struct timeval start;
-	struct timeval end;
-
-	if (gettimeofday(&start, 0)) {
-		perror("gettimeofday");
-		return 0.0;
-	}
-	uint64 tsc_start = cycle_timer();
-	/* Sleep for 5 miliseconds. Comparaing with gettimeofday's  few microseconds
-     * execution time, this should be enough. */
-	usleep(5000);
-	if (gettimeofday(&end, 0)) {
-		perror("gettimeofday");
-		return 0.0;
-	}
-	uint64 tsc_end = cycle_timer();
-	return (tsc_end - tsc_start) * 1.0 / (get_us_interval(&start, &end));
-}
-
-/**
- * Calculate frequencies for all available cpus.
- *
- * @author cjiang
- */
-static void get_all_cpu_frequencies(TSRMLS_D) {
-	int id;
-	double frequency;
-
-	APM_G(cpu_frequencies) = malloc(sizeof(double) * APM_G(cpu_num));
-	if (APM_G(cpu_frequencies) == NULL) {
-		return;
-	}
-
-	/* Iterate over all cpus found on the machine. */
-	for (id = 0; id < APM_G(cpu_num); ++id) {
-		/* Only get the previous cpu affinity mask for the first call. */
-		if (bind_to_cpu(id TSRMLS_CC)) {
-			clear_frequencies(TSRMLS_C);
-			return;
-		}
-
-		/* Make sure the current process gets scheduled to the target cpu. This
-         * might not be necessary though. */
-		usleep(0);
-
-		frequency = get_cpu_frequency();
-		if (frequency == 0.0) {
-			clear_frequencies(TSRMLS_C);
-			return;
-		}
-		APM_G(cpu_frequencies[id]) = frequency;
-	}
-}
-
-/**
- * Restore cpu affinity mask to a specified value. It returns 0 on success and
- * -1 on failure.
- *
- * @param cpu_set_t * prev_mask, previous cpu affinity mask to be restored to.
- * @return int, 0 on success, and -1 on failure.
- *
- * @author cjiang
- */
-int restore_cpu_affinity(cpu_set_t * prev_mask TSRMLS_DC) {
-	if (SET_AFFINITY(0, sizeof(cpu_set_t), prev_mask) < 0) {
-		perror("restore setaffinity");
-		return -1;
-	}
-	/* default value ofor cur_cpu_id is 0. */
-	APM_G(cur_cpu_id) = 0;
-	return 0;
-}
-
-/**
- * Reclaim the memory allocated for cpu_frequencies.
- *
- * @author cjiang
- */
-static void clear_frequencies(TSRMLS_D) {
-	if (APM_G(cpu_frequencies)) {
-		free(APM_G(cpu_frequencies));
-		APM_G(cpu_frequencies) = NULL;
-	}
-	restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
-}
-
-/**
- * ****************************
- * XHPROF COMMON CALLBACKS
- * ****************************
- */
-/**
- * XHPROF universal end function.  This function is called for all modes after
- * the mode's specific end_function callback is called.
- *
- * @param  hp_entry_t **entries  linked list (stack) of hprof entries
- * @return void
- * @author kannan, veeve
- */
-void hp_mode_common_endfn(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC) {
-	APM_G(func_hash_counters[current->hash_code])--;
-}
-
-/**
- * *********************************
- * XHPROF INIT MODULE CALLBACKS
- * *********************************
- */
-/**
- * XHPROF_MODE_SAMPLED's init callback
- *
- * @author veeve
- */
-void hp_mode_sampled_init_cb(TSRMLS_D) {
-	struct timeval  now;
-	uint64 truncated_us;
-	uint64 truncated_tsc;
-	double cpu_freq = APM_G(cpu_frequencies[APM_G(cur_cpu_id)]);
-
-	/* Init the last_sample in tsc */
-	APM_G(last_sample_tsc) = cycle_timer();
-
-	/* Find the microseconds that need to be truncated */
-	gettimeofday(&APM_G(last_sample_time), 0);
-	now = APM_G(last_sample_time);
-	hp_trunc_time(&APM_G(last_sample_time), XHPROF_SAMPLING_INTERVAL);
-
-	/* Subtract truncated time from last_sample_tsc */
-	truncated_us  = get_us_interval(&APM_G(last_sample_time), &now);
-	truncated_tsc = get_tsc_from_us(truncated_us, cpu_freq);
-	if (APM_G(last_sample_tsc) > truncated_tsc) {
-		/* just to be safe while subtracting unsigned ints */
-		APM_G(last_sample_tsc) -= truncated_tsc;
-	}
-
-	/* Convert sampling interval to ticks */
-	APM_G(sampling_interval_tsc) =
-			get_tsc_from_us(XHPROF_SAMPLING_INTERVAL, cpu_freq);
-}
-
 
 /**
  * ************************************
@@ -1012,29 +723,16 @@ void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC
     current->rlvl_hprof = recurse_level;
 
 	/* Get CPU usage */
-	if (APM_G(xhprof_flags) & XHPROF_FLAGS_CPU) {
-		getrusage(RUSAGE_SELF, &(current->ru_start_hprof));
+	if (APM_G(xhprof_flags) & APM_FLAGS_CPU) {
+        current->cpu_start = cpu_timer();
 	}
 
 	/* Get memory usage */
-	if (APM_G(xhprof_flags) & XHPROF_FLAGS_MEMORY) {
+	if (APM_G(xhprof_flags) & APM_FLAGS_MEMORY) {
 		current->mu_start_hprof  = zend_memory_usage(0 TSRMLS_CC);
 		current->pmu_start_hprof = zend_memory_peak_usage(0 TSRMLS_CC);
 	}
 }
-
-
-/**
- * XHPROF_MODE_SAMPLED's begin function callback
- *
- * @author veeve
- */
-void hp_mode_sampled_beginfn_cb(hp_entry_t **entries,
-								hp_entry_t  *current  TSRMLS_DC) {
-	/* See if its time to take a sample */
-	hp_sample_check(entries  TSRMLS_CC);
-}
-
 
 /**
  * **********************************
@@ -1049,26 +747,21 @@ void hp_mode_sampled_beginfn_cb(hp_entry_t **entries,
  */
 void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
 	hp_entry_t    *top = (*entries);
-    HashTable     *ht;
 	zval          *counts;
-	struct rusage ru_end;
 	char          symbol[SCRATCH_BUF_LEN];
 	long int      mu_end;
 	long int      pmu_end;
-    uint64        tsc_end;
-    double        wt;
+    double        wt, cpu;
     void          *data;
 
     /* Get end tsc counter */
-    tsc_end = cycle_timer();
-    wt = get_us_from_tsc(tsc_end - top->tsc_start, APM_G(cpu_frequencies[APM_G(cur_cpu_id)]));
+    wt = get_us_from_tsc(cycle_timer() - top->tsc_start TSRMLS_CC);
 
-    ht = Z_ARRVAL_P(APM_G(stats_count));
     /* Get the stat array */
     hp_get_function_stack(top, 2, symbol, sizeof(symbol));
 
     /* Lookup our hash table */
-    if (zend_hash_find(ht, symbol, strlen(symbol) + 1, &data) == SUCCESS) {
+    if (zend_hash_find(Z_ARRVAL_P(APM_G(stats_count)), symbol, strlen(symbol) + 1, &data) == SUCCESS) {
         /* Symbol already exists */
         counts = *(zval **) data;
     } else {
@@ -1082,18 +775,13 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
     hp_inc_count(counts, "ct", 1  TSRMLS_CC);
     hp_inc_count(counts, "wt", wt TSRMLS_CC);
 
-    if (APM_G(xhprof_flags) & XHPROF_FLAGS_CPU) {
-        /* Get CPU usage */
-        getrusage(RUSAGE_SELF, &ru_end);
-
+    if (APM_G(xhprof_flags) & APM_FLAGS_CPU) {
+        cpu = get_us_from_tsc(cpu_timer() - top->cpu_start TSRMLS_CC);
         /* Bump CPU stats in the counts hashtable */
-        hp_inc_count(counts, "cpu", (get_us_interval(&(top->ru_start_hprof.ru_utime),
-                                                     &(ru_end.ru_utime)) +
-                                     get_us_interval(&(top->ru_start_hprof.ru_stime),
-                                                     &(ru_end.ru_stime))) TSRMLS_CC);
+        hp_inc_count(counts, "cpu", cpu TSRMLS_CC);
     }
 
-    if (APM_G(xhprof_flags) & XHPROF_FLAGS_MEMORY) {
+    if (APM_G(xhprof_flags) & APM_FLAGS_MEMORY) {
         /* Get Memory usage */
         mu_end  = zend_memory_usage(0 TSRMLS_CC);
         pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
@@ -1102,18 +790,9 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
         hp_inc_count(counts, "mu",  mu_end - top->mu_start_hprof    TSRMLS_CC);
         hp_inc_count(counts, "pmu", pmu_end - top->pmu_start_hprof  TSRMLS_CC);
     }
-}
 
-/**
- * XHPROF_MODE_SAMPLED's end function callback
- *
- * @author veeve
- */
-void hp_mode_sampled_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
-	/* See if its time to take a sample */
-	hp_sample_check(entries  TSRMLS_CC);
+    APM_G(func_hash_counters[top->hash_code])--;
 }
-
 
 /**
  * ***************************
@@ -1196,7 +875,7 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data,
 	char             *func = NULL;
 	int    hp_profile_flag = 1;
 
-    if (!APM_G(enabled) || (APM_G(xhprof_flags) & XHPROF_FLAGS_NO_BUILTINS) > 0) {
+    if (!APM_G(enabled) || (APM_G(xhprof_flags) & APM_FLAGS_NO_BUILTINS) > 0) {
 #if PHP_VERSION_ID < 50500
         execute_internal(execute_data, ret TSRMLS_CC);
 #else
@@ -1351,9 +1030,6 @@ static void hp_stop(TSRMLS_D) {
 		END_PROFILING(&APM_G(entries), hp_profile_flag);
 	}
 
-	/* Resore cpu affinity. */
-	restore_cpu_affinity(&APM_G(prev_mask) TSRMLS_CC);
-
     if (APM_G(root)) {
         efree(APM_G(root));
         APM_G(root) = NULL;
@@ -1460,7 +1136,7 @@ static char **hp_strings_in_zval(zval *values) {
 static inline void hp_array_del(char **name_array) {
 	if (name_array != NULL) {
 		int i = 0;
-		for (; name_array[i] != NULL && i < XHPROF_MAX_IGNORED_FUNCTIONS; i++) {
+		for (; name_array[i] != NULL && i < APM_MAX_IGNORED_FUNCTIONS; i++) {
 			efree(name_array[i]);
 		}
 		efree(name_array);
@@ -2312,22 +1988,8 @@ PHP_MINFO_FUNCTION(xhprof_apm)
 	int len;
 
 	php_info_print_table_start();
-	php_info_print_table_header(2, "xhprof_apm", XHPROF_APM_VERSION);
-	len = snprintf(buf, SCRATCH_BUF_LEN, "%d", APM_G(cpu_num));
-	buf[len] = 0;
-	php_info_print_table_header(2, "CPU num", buf);
-
-	if (APM_G(cpu_frequencies)) {
-		/* Print available cpu frequencies here. */
-		php_info_print_table_header(2, "CPU logical id", " Clock Rate (MHz) ");
-		for (i = 0; i < APM_G(cpu_num); ++i) {
-			len = snprintf(buf, SCRATCH_BUF_LEN, " CPU %d ", i);
-			buf[len] = 0;
-			len = snprintf(tmp, SCRATCH_BUF_LEN, "%f", APM_G(cpu_frequencies[i]));
-			tmp[len] = 0;
-			php_info_print_table_row(2, buf, tmp);
-		}
-	}
-
+    php_info_print_table_header(2, "xhprof_apm support", "enabled");
+    php_info_print_table_row(2, "Version", XHPROF_APM_VERSION);
 	php_info_print_table_end();
+    DISPLAY_INI_ENTRIES();
 }
