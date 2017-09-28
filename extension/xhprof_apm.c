@@ -255,7 +255,7 @@ int hp_ignored_functions_filter_collision(hp_ignored_function_map *map, uint8 ha
  *
  * @author kannan, veeve
  */
-void hp_init_profiler_state(TSRMLS_D) {
+static void hp_init_profiler_state(TSRMLS_D) {
 	/* Setup globals */
 	if (!APM_G(ever_enabled)) {
 		APM_G(ever_enabled)  = 1;
@@ -278,7 +278,7 @@ void hp_init_profiler_state(TSRMLS_D) {
  *
  * @author kannan, veeve
  */
-void hp_clean_profiler_state(TSRMLS_D) {
+static void hp_clean_profiler_state(TSRMLS_D) {
 	/* Clear globals */
 	if (APM_G(stats_count)) {
 		zval_ptr_dtor(&(APM_G(stats_count)));
@@ -379,10 +379,7 @@ static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func TSRMLS_D
  *
  * @author kannan, veeve
  */
-size_t hp_get_function_stack(hp_entry_t *entry,
-							 int            level,
-							 char          *result_buf,
-							 size_t         result_len) {
+static size_t hp_get_function_stack(hp_entry_t *entry, int level, char *result_buf, size_t result_len) {
 	size_t         len = 0;
 
 	/* End recursion if we dont need deeper levels or we dont have any deeper
@@ -392,10 +389,7 @@ size_t hp_get_function_stack(hp_entry_t *entry,
 	}
 
 	/* Take care of all ancestors first */
-	len = hp_get_function_stack(entry->prev_hprof,
-								level - 1,
-								result_buf,
-								result_len);
+	len = hp_get_function_stack(entry->prev_hprof, level - 1, result_buf, result_len);
 
 	/* Append the delimiter */
 # define    HP_STACK_DELIM        "==>"
@@ -699,7 +693,7 @@ static inline uint64 get_tsc_from_us(uint64 usecs, double cpu_frequency) {
  *
  * @author kannan
  */
-void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC)
+static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC)
 {
 	hp_entry_t   *p;
     /* This symbol's recursive level */
@@ -745,10 +739,10 @@ void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC
  *
  * @author kannan
  */
-void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
+static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
 	hp_entry_t    *top = (*entries);
 	zval          *counts;
-	char          symbol[SCRATCH_BUF_LEN];
+	char          symbol[SCRATCH_BUF_LEN] = "";
 	long int      mu_end;
 	long int      pmu_end;
     double        wt, cpu;

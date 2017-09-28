@@ -331,6 +331,8 @@ static void hp_init_trace_callbacks(TSRMLS_D);
 
 static hp_ignored_function_map *hp_ignored_functions_init(char **names);
 
+static size_t hp_get_function_stack(hp_entry_t *entry, int level, char *result_buf, size_t result_len);
+
 extern ZEND_DECLARE_MODULE_GLOBALS(apm);
 
 #endif	/* PHP_XHPROF_APM_H */
