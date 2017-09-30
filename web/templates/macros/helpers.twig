@@ -31,7 +31,7 @@
 {% endmacro %}
 
 {% macro tip_link(text, len, url, params) %}
-<a {% if text|length > len %}class="tip"{% endif %}
+<a {% if text|length >= len %}class="tip"{% endif %}
     href="{{ path_for(url, {}, params) }}"
     title="{{ text }}">
     {{ text|truncate(len) }}

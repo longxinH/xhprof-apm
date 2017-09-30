@@ -47,9 +47,6 @@ extern zend_module_entry xhprof_apm_module_entry;
  * in the name is to ensure we don't conflict with user function names.  */
 #define ROOT_SYMBOL                "main()"
 
-/* Size of a temp scratch buffer            */
-#define SCRATCH_BUF_LEN            512
-
 /* Hierarchical profiling flags.
  *
  * Note: Function call counts and wall (elapsed) time are always profiled.
@@ -330,8 +327,6 @@ static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_
 static void hp_init_trace_callbacks(TSRMLS_D);
 
 static hp_ignored_function_map *hp_ignored_functions_init(char **names);
-
-static size_t hp_get_function_stack(hp_entry_t *entry, int level, char *result_buf, size_t result_len);
 
 extern ZEND_DECLARE_MODULE_GLOBALS(apm);
 

@@ -308,35 +308,22 @@ static void hp_clean_profiler_options_state(TSRMLS_D) {
  * Returns formatted function name
  *
  * @param  entry        hp_entry
- * @param  result_buf   ptr to result buf
- * @param  result_len   max size of result buf
  * @return total size of the function name returned in result_buf
  * @author veeve
  */
-static size_t hp_get_entry_name(hp_entry_t *entry, char *result_buf, size_t result_len) {
-	/* Validate result_len */
-	if (result_len <= 1) {
-		/* Insufficient result_bug. Bail! */
-		return 0;
-	}
+static char* hp_get_entry_name(hp_entry_t *entry) {
+	char *result_buf;
 
 	/* Add '@recurse_level' if required */
 	/* NOTE:  Dont use snprintf's return val as it is compiler dependent */
 	if (entry->rlvl_hprof) {
-		snprintf(result_buf, result_len,
-				 "%s@%d",
-				 entry->name_hprof, entry->rlvl_hprof);
+		spprintf(&result_buf, 0, "%s@%d", entry->name_hprof, entry->rlvl_hprof);
 	}
 	else {
-		snprintf(result_buf, result_len,
-				 "%s",
-				 entry->name_hprof);
+		spprintf(&result_buf, 0, "%s", entry->name_hprof);
 	}
 
-	/* Force null-termination at MAX */
-	result_buf[result_len - 1] = 0;
-
-	return strlen(result_buf);
+	return result_buf;
 }
 
 /**
@@ -379,42 +366,34 @@ static inline int hp_ignore_entry_work(uint8 hash_code, char *curr_func TSRMLS_D
  *
  * @author kannan, veeve
  */
-static size_t hp_get_function_stack(hp_entry_t *entry, int level, char *result_buf, size_t result_len) {
-	size_t         len = 0;
+static char* hp_get_function_stack(hp_entry_t *entry, int level) {
+	char *result_buf, *curr_result, *prev_result;
 
 	/* End recursion if we dont need deeper levels or we dont have any deeper
      * levels */
 	if (!entry->prev_hprof || (level <= 1)) {
-        return hp_get_entry_name(entry, result_buf, result_len);
+        return hp_get_entry_name(entry);
 	}
 
 	/* Take care of all ancestors first */
-	len = hp_get_function_stack(entry->prev_hprof, level - 1, result_buf, result_len);
+	prev_result = hp_get_function_stack(entry->prev_hprof, level - 1);
 
 	/* Append the delimiter */
 # define    HP_STACK_DELIM        "==>"
-# define    HP_STACK_DELIM_LEN    (sizeof(HP_STACK_DELIM) - 1)
-
-	if (result_len < (len + HP_STACK_DELIM_LEN)) {
-		/* Insufficient result_buf. Bail out! */
-		return len;
-	}
 
 	/* Add delimiter only if entry had ancestors */
-	if (len) {
-		strncat(result_buf + len,
-				HP_STACK_DELIM,
-				result_len - len);
-		len += HP_STACK_DELIM_LEN;
-	}
+	strcat(prev_result, HP_STACK_DELIM);
 
-# undef     HP_STACK_DELIM_LEN
 # undef     HP_STACK_DELIM
 
+	curr_result = hp_get_entry_name(entry);
+
 	/* Append the current function name */
-	return len + hp_get_entry_name(entry,
-								   result_buf + len,
-								   result_len - len);
+	spprintf(&result_buf, 0, "%s%s", prev_result, curr_result);
+
+	efree(prev_result);
+	efree(curr_result);
+	return result_buf;
 }
 
 static char *hp_concat_char(const char *s1, const char *s2, const char *seperator)
@@ -742,7 +721,7 @@ static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TS
 static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
 	hp_entry_t    *top = (*entries);
 	zval          *counts;
-	char          symbol[SCRATCH_BUF_LEN] = "";
+	char          *symbol;
 	long int      mu_end;
 	long int      pmu_end;
     double        wt, cpu;
@@ -752,7 +731,7 @@ static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
     wt = get_us_from_tsc(cycle_timer() - top->tsc_start TSRMLS_CC);
 
     /* Get the stat array */
-    hp_get_function_stack(top, 2, symbol, sizeof(symbol));
+	symbol = hp_get_function_stack(top, 2);
 
     /* Lookup our hash table */
     if (zend_hash_find(Z_ARRVAL_P(APM_G(stats_count)), symbol, strlen(symbol) + 1, &data) == SUCCESS) {
@@ -786,6 +765,7 @@ static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
     }
 
     APM_G(func_hash_counters[top->hash_code])--;
+	efree(symbol);
 }
 
 /**
@@ -1844,7 +1824,9 @@ PHP_RINIT_FUNCTION(xhprof_apm) {
 		char realpath[MAXPATHLEN];
 		spprintf(&config_ini, 0, "%s", INI_STR("xhprof_apm.config_ini"));
 
-		if (!VCWD_REALPATH(config_ini, realpath)) {
+		if (VCWD_ACCESS(config_ini, F_OK) == 0) {
+			strcpy(realpath, config_ini);
+		} else {
 			efree(config_ini);
 			zval *document_root = hp_request_query(TRACK_VARS_SERVER, ZEND_STRL("DOCUMENT_ROOT") TSRMLS_CC);
 			spprintf(&config_ini, 0, "%s%c%s", Z_STRVAL_P(document_root), DEFAULT_SLASH, INI_STR("xhprof_apm.config_ini"));
@@ -1976,11 +1958,6 @@ PHP_RSHUTDOWN_FUNCTION(xhprof_apm) {
  */
 PHP_MINFO_FUNCTION(xhprof_apm)
 {
-	char buf[SCRATCH_BUF_LEN];
-	char tmp[SCRATCH_BUF_LEN];
-	int i;
-	int len;
-
 	php_info_print_table_start();
     php_info_print_table_header(2, "xhprof_apm support", "enabled");
     php_info_print_table_row(2, "Version", XHPROF_APM_VERSION);
