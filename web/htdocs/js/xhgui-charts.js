@@ -144,6 +144,8 @@ Xhgui.tooltip = function (container, options) {
             content = popover.append('div')
                 .attr('class', 'popover-content');
 
+            popover.style({'max-width': window.innerWidth + 'px', 'word-break' : 'break-all'});
+            
             // stop flickering tooltips.
             container.on('mouseout', stop);
             popover.on('mouseout', stop);
@@ -188,9 +190,11 @@ Xhgui.tooltip = function (container, options) {
         top = containerNode.offsetTop + position.y - (tooltipHeight / 2) - 7;
         left = containerNode.offsetLeft + position.x - (tooltipWidth / 2) + 5;
 
+        tooltip.frame.select(".arrow").style({'left' : (left < 0 ? parseInt((tooltipWidth/2 + left), 10) : parseInt(tooltipWidth/2)) + 'px'});
+        
         tooltip.frame.style({
             top: top + 'px',
-            left: left + 'px'
+            left: ((left < 0) ? 0 : left) + 'px'
         });
 
         d3.select(document).on('mouseout', hide);
