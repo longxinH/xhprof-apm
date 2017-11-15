@@ -79,6 +79,14 @@ curl的数据经过json_encode处理
 file_put_contents('/tmp/xhprof_apm.log', file_get_contents("php://input") . PHP_EOL, FILE_APPEND);
 ```
 
+### 预定义常量
+```php
+APM_FLAGS_NO_BUILTINS (int) 使得跳过所有内置（内部）函数
+APM_FLAGS_CPU (int) 使输出的性能数据中添加 CPU 数据
+APM_FLAGS_MEMORY (int) 使输出的性能数据中添加内存数据
+APM_FLAGS_FILES (int) 记录文件调用栈
+```
+
 ### 数据格式
 ```php
 array(6) {
@@ -97,6 +105,25 @@ array(6) {
   ["debug"] => 是否debug模式启动 (int)
 }
 ```
+### 性能分析数据格式
+```php
+array(10) {
+    [函数名]=>
+      array(5) {
+        ["ct"] => 调用次数 (int)
+        ["wt"] => 函数方法执行的时间耗时 (int)
+        ["cpu"] => 函数方法执行消耗的cpu时间 (int)
+        ["mu"] => 函数方法所使用的内存 (int)
+        ["pmu"] => 函数方法所使用的内存峰值 (int)
+        ["files"] => array {
+          [文件名] =>
+            array {
+              [行号] => 调用次数 (int)
+            }
+        }
+    }
+}
+```
 
 #### [更多例子](https://github.com/longxinH/xhprof-apm/blob/master/examples/)
 
@@ -106,7 +133,7 @@ array(6) {
 |      配置选项        |      选项      |   说明    |
 | --------------- |:-------------:|:---------|
 |apm.auto  | 1、0 | 1：开启、0：关闭|
-|apm.flags  | APM_FLAGS_NO_BUILTINS、APM_FLAGS_CPU、APM_FLAGS_MEMORY | 额外信息的可选标记 ([说明](http://php.net/manual/zh/xhprof.constants.php))|
+|apm.flags  | APM_FLAGS_NO_BUILTINS、APM_FLAGS_CPU、APM_FLAGS_MEMORY、APM_FLAGS_FILES | 预定义变量|
 |apm.ignored  | array的可选选项 |忽略性能分析中的某些函数 |
 |apm.rate  | 0 - 100 |频率设置，按照0到100的百分比，如果auto设为0，此选项不会生效，如设置大于100会每次开启，等于0则不开启。当不需要此选项时，请注释掉|
 |apm.debug  | GET参数名 |此选项可通过特定的GET参数开启性能分析，注释即可关闭。如设置auto = 0，同时GET参数中带有设置值 (例如 http://localhost/?apm_debug) ，也会开启性能分析，优先级高于auto。|
@@ -117,6 +144,7 @@ apm.auto = 1
 ;APM_FLAGS_NO_BUILTINS
 ;APM_FLAGS_CPU
 ;APM_FLAGS_MEMORY
+;APM_FLAGS_FILES
 apm.flags = APM_FLAGS_CPU | APM_FLAGS_MEMORY
 
 apm.ignored[] = md5
@@ -188,6 +216,3 @@ server {
     }
 }
 ```
-
-## 感谢
-[shaukei](https://github.com/shaukei)
