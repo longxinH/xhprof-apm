@@ -11,3 +11,4 @@ $app->get('/run/flamegraph', 'Controller\Run:flamegraph')->setName('run.flamegra
 $app->get('/run/flamegraph/data', 'Controller\Run:flamegraphData')->setName('run.flamegraph.data');
 $app->get('/run/compare', 'Controller\Run:compare')->setName('run.compare');
 $app->get('/url/view', 'Controller\Run:url')->setName('url.view');
+$app->get('/url/stack', 'Controller\Run:stack')->setName('url.stack');

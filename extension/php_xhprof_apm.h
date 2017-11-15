@@ -56,6 +56,7 @@ extern zend_module_entry xhprof_apm_module_entry;
 #define APM_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
 #define APM_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
 #define APM_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
+#define APM_FLAGS_FILES         0x0008
 
 /* Constant for ignoring functions, transparent to hierarchical profile */
 #define APM_MAX_IGNORED_FUNCTIONS  256
@@ -116,16 +117,16 @@ extern zend_module_entry xhprof_apm_module_entry;
   do {                                                                       \
     /* Use a hash code to filter most of the string comparisons. */          \
     uint8 hash_code  = hp_inline_hash(symbol);                               \
-    profile_curr = !hp_ignore_entry_work(hash_code, symbol TSRMLS_CC);                 \
+    profile_curr = !hp_ignore_entry_work(hash_code, symbol TSRMLS_CC);       \
     if (profile_curr) {                                                      \
         if (execute_data != NULL) {                                          \
             symbol = hp_get_trace_callback(symbol, execute_data TSRMLS_CC);  \
         }                                                                    \
-        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry(TSRMLS_C);                 \
+        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry(TSRMLS_C);         \
         (cur_entry)->hash_code = hash_code;                                  \
         (cur_entry)->name_hprof = symbol;                                    \
         (cur_entry)->prev_hprof = (*(entries));                              \
-        hp_mode_hier_beginfn_cb((entries), (cur_entry) TSRMLS_CC);                     \
+        hp_mode_hier_beginfn_cb((entries), (cur_entry), execute_data TSRMLS_CC);           \
         /* Update entries linked list */                                     \
         (*(entries)) = (cur_entry);                                          \
     }                                                                        \
@@ -189,6 +190,8 @@ typedef struct hp_entry_t {
     long int               pmu_start_hprof;              /* peak memory usage */
     struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
     uint8                  hash_code;     /* hash_code for the function name  */
+    char                   *filename;
+    int                    lineno;
 } hp_entry_t;
 
 typedef struct hp_ignored_function_map {

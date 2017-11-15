@@ -165,6 +165,10 @@ static void hp_register_constants(INIT_FUNC_ARGS) {
 	REGISTER_LONG_CONSTANT("APM_FLAGS_MEMORY",
                            APM_FLAGS_MEMORY,
 						   CONST_CS | CONST_PERSISTENT);
+
+    REGISTER_LONG_CONSTANT("APM_FLAGS_FILES",
+                           APM_FLAGS_FILES,
+                           CONST_CS | CONST_PERSISTENT);
 }
 
 /**
@@ -672,7 +676,7 @@ static inline uint64 get_tsc_from_us(uint64 usecs, double cpu_frequency) {
  *
  * @author kannan
  */
-static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC)
+static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current, zend_execute_data *data TSRMLS_DC)
 {
 	hp_entry_t   *p;
     /* This symbol's recursive level */
@@ -705,6 +709,22 @@ static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TS
 		current->mu_start_hprof  = zend_memory_usage(0 TSRMLS_CC);
 		current->pmu_start_hprof = zend_memory_peak_usage(0 TSRMLS_CC);
 	}
+
+    if (APM_G(xhprof_flags) & APM_FLAGS_FILES) {
+        current->filename = NULL;
+        current->lineno = 0;
+        if (data) {
+            if (data->op_array && data->op_array->filename) {
+                current->filename = strdup(data->op_array->filename);
+            } else {
+                current->filename = NULL;
+            }
+
+            if (data->opline && current->filename) {
+                current->lineno = data->opline->lineno;
+            }
+        }
+    }
 }
 
 /**
@@ -720,7 +740,7 @@ static void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current TS
  */
 static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
 	hp_entry_t    *top = (*entries);
-	zval          *counts;
+	zval          *counts, *files_stack, *file;
 	char          *symbol;
 	long int      mu_end;
 	long int      pmu_end;
@@ -764,7 +784,34 @@ static void hp_mode_hier_endfn_cb(hp_entry_t **entries TSRMLS_DC) {
         hp_inc_count(counts, "pmu", pmu_end - top->pmu_start_hprof  TSRMLS_CC);
     }
 
-    APM_G(func_hash_counters[top->hash_code])--;
+    if (APM_G(xhprof_flags) & APM_FLAGS_FILES) {
+        if (top->filename) {
+            if (zend_hash_find(Z_ARRVAL_P(counts), "files", strlen("files") + 1, &data) == SUCCESS) {
+                files_stack = *(zval **) data;
+            } else {
+                MAKE_STD_ZVAL(files_stack);
+                array_init(files_stack);
+                add_assoc_zval(counts, "files", files_stack);
+            }
+
+            if (zend_hash_find(Z_ARRVAL_P(files_stack), top->filename, strlen(top->filename) + 1, &data) == SUCCESS) {
+                file = *(zval **) data;
+            } else {
+                MAKE_STD_ZVAL(file);
+                array_init(file);
+                add_assoc_zval(files_stack, top->filename, file);
+            }
+
+            if (zend_hash_index_find(HASH_OF(file), top->lineno, &data) == SUCCESS) {
+                ZVAL_LONG(*(zval**)data, Z_LVAL_PP((zval**)data) + 1);
+            } else {
+                add_index_long(file, top->lineno, 1);
+            }
+        }
+
+    }
+
+	APM_G(func_hash_counters[top->hash_code])--;
 	efree(symbol);
 }
 
@@ -837,13 +884,11 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
 #if PHP_VERSION_ID < 50500
 #define EX_T(offset) (*(temp_variable *)((char *) EX(Ts) + offset))
 
-ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data,
-                                       int ret TSRMLS_DC) {
+ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, int ret TSRMLS_DC) {
 #else
 #define EX_T(offset) (*EX_TMP_VAR(execute_data, offset))
 
-ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data,
-									   struct _zend_fcall_info *fci, int ret TSRMLS_DC) {
+ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC) {
 #endif
 	zend_execute_data *current_data;
 	char             *func = NULL;

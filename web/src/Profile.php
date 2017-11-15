@@ -15,6 +15,7 @@ class Profile
     protected $_collapsed;
     protected $_indexed;
     protected $_visited;
+    protected $_stack = false;
 
     protected $_metricTime = ['wt', 'cpu', 'ewt', 'ecpu'];
     protected $_metricBytes = ['mu', 'emu', 'epmu'];
@@ -50,6 +51,10 @@ class Profile
             if (isset($result[$func])) {
                 $result[$func] = $this->_sumKeys($result[$func], $values);
                 $result[$func]['parents'][] = $parent;
+                if (isset($result[$func]['files'])) {
+                    $result[$func]['files'] = array_merge_recursive($result[$func]['files'], $values['files']);
+                    $this->_stack = true;
+                }
             } else {
                 $result[$func] = $values;
                 $result[$func]['parents'] = array($parent);
@@ -156,6 +161,11 @@ class Profile
             }
         }
         return $data;
+    }
+
+    public function checkStack()
+    {
+        return $this->_stack;
     }
 
     /**

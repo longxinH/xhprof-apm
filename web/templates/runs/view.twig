@@ -95,6 +95,9 @@
     <thead>
         <tr>
             <th>函数</th>
+            {% if stack %}
+                <th>调用栈</th>
+            {% endif %}
             <th>调用次数</th>
             <th>执行时间</th>
             <th>CPU时间</th>
@@ -112,11 +115,18 @@
         <td class="text">
             {{ helpers.tip_link(
                 key,
-                65,
+                45,
                 'run.symbol',
                 {'id': result.id|trim, 'symbol': key}
             ) }}
         </td>
+        {% if stack %}
+            <td class="right">
+                {% if value.files %}
+                    <a href="{{ path_for('url.stack', {}, {'id': result.id|trim, 'symbol': key}) }}">查看</a>
+                {% endif %}
+            </td>
+        {% endif %}
         <td class="right">{{ value.ct }}</td>
         <td class="right">{{ value.ewt|as_time }}</td>
         <td class="right">{{ value.ecpu|as_time }}</td>

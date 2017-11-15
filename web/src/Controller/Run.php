@@ -75,6 +75,7 @@ class Run extends \Controller
             'memory' => $memoryChart,
             'profile' => $profile,
             'date_format' => $this->config('date.format'),
+            'stack' => $result->checkStack()
         ];
 
         $this->render('runs/view.twig', $tpl_var);
@@ -120,6 +121,25 @@ class Run extends \Controller
         ];
 
         $this->render('runs/url.twig', $tpl_var);
+    }
+
+    public function stack()
+    {
+        $id = $this->_request->getQueryParam('id');
+        $symbol = $this->_request->getQueryParam('symbol');
+
+        $profile = $this->_profiles->get($id);
+        $profile->calculateSelf();
+        list(, $current, ) = $profile->getRelatives($symbol);
+
+        $tpl_var = [
+            'symbol' => $symbol,
+            'id' => $id,
+            'main' => $profile->get('main()'),
+            'current' => $current,
+        ];
+
+        $this->render('runs/stack.twig', $tpl_var);
     }
 
     public function symbol()
