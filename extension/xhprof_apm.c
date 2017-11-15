@@ -1817,7 +1817,8 @@ static int hp_rshutdown_curl(zval *data, int debug TSRMLS_DC) {
 		double timeout = INI_FLT("xhprof_apm.curl_timeout_ms");
 
 		headers = curl_slist_append(headers, "User-Agent: Xhprof-apm");
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        headers = curl_slist_append(headers, "Expect:");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 		curl_easy_setopt(curl, CURLOPT_URL, uri);
 		curl_easy_setopt(curl, CURLOPT_POST, 1);
