@@ -89,9 +89,9 @@ APM_FLAGS_FILES (int) 记录文件调用栈
 
 ### 数据格式
 ```php
-array(6) {
+array {
   ["meta"] =>
-      array(5) {
+      array {
         ["url"] => 完整请求地址 (string)
         ["simple_url"] => 精简后的地址，保留请求参数，但不保留值，用作特定参数请求的匹配 (string)
         ["request_date"] => 请求时间戳 (int)
@@ -106,10 +106,11 @@ array(6) {
 }
 ```
 ### 性能分析数据格式
+需要在apm.ini配置 `APM_FLAGS_FILES` 才能记录 `files` 栈
 ```php
-array(10) {
+array {
     [函数名]=>
-      array(5) {
+      array {
         ["ct"] => 调用次数 (int)
         ["wt"] => 函数方法执行的时间耗时 (int)
         ["cpu"] => 函数方法执行消耗的cpu时间 (int)
