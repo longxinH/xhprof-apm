@@ -130,13 +130,14 @@ class Run extends \Controller
 
         $profile = $this->_profiles->get($id);
         $profile->calculateSelf();
-        list(, $current, ) = $profile->getRelatives($symbol);
+        list($parents, $current, ) = $profile->getRelatives($symbol);
 
         $tpl_var = [
             'symbol' => $symbol,
             'id' => $id,
             'main' => $profile->get('main()'),
             'current' => $current,
+            'parents' => $parents,
         ];
 
         $this->render('runs/stack.twig', $tpl_var);

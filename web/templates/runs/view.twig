@@ -63,7 +63,7 @@
           <div id="wall-time-chart" class="chart-container"></div>
           <dl>
           {% for value in wall_time %}
-              <dt class="text-wrap">{{ value.name|truncate(60) }}</dt>
+              <dt class="text-wrap"><a href="{{ path_for('run.symbol', {}, {'id': result.id|trim, 'symbol': value.name}) }}">{{ value.name|truncate(60) }}</a></dt>
               <dd>{{ value.value }} <span class="units">ms</span></dd>
           {% endfor %}
           </dl>
@@ -74,7 +74,7 @@
           <div id="memory-usage-chart" class="chart-container"></div>
           <dl>
           {% for value in memory %}
-              <dt class="text-wrap">{{ value.name|truncate(60) }}</dt>
+              <dt class="text-wrap"><a href="{{ path_for('run.symbol', {}, {'id': result.id|trim, 'symbol': value.name}) }}">{{ value.name|truncate(60) }}</a></dt>
               <dd>{{ value.value }} <span class="units">MB</span></dd>
           {% endfor %}
           </dl>
