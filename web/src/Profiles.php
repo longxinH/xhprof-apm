@@ -2,6 +2,9 @@
 
 class Profiles
 {
+    /**
+     * @var Database\Mongo|Database\Mysql
+     */
     protected $_db;
 
     public function __construct($db)
