@@ -51,7 +51,7 @@ class Profile
             if (isset($result[$func])) {
                 $result[$func] = $this->_sumKeys($result[$func], $values);
                 $result[$func]['parents'][] = $parent;
-                if (isset($result[$func]['files'])) {
+                if (isset($result[$func]['files'],  $values['files'])) {
                     $result[$func]['files'] = array_merge_recursive($result[$func]['files'], $values['files']);
                     $this->_stack = true;
                 }
