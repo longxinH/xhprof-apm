@@ -45,6 +45,7 @@ class Profile
     {
         $result = array();
         foreach ($this->_data['profile'] as $name => $values) {
+            $name = strtr($name, ['\u002e' => '.']);
             list($parent, $func) = $this->splitName($name);
 
             // Generate collapsed data.
@@ -52,12 +53,30 @@ class Profile
                 $result[$func] = $this->_sumKeys($result[$func], $values);
                 $result[$func]['parents'][] = $parent;
                 if (isset($result[$func]['files'],  $values['files'])) {
+                    foreach ($values['files'] as $key => $val) {
+                        $new_key = strtr($key, ['\u002e' => '.']);
+                        if ($new_key != $key) {
+                            unset($values['files'][$key]);
+                            $values['files'][$new_key] = $val;
+                        }
+                    }
+
                     $result[$func]['files'] = array_merge_recursive($result[$func]['files'], $values['files']);
                     $this->_stack = true;
                 }
             } else {
                 $result[$func] = $values;
                 $result[$func]['parents'] = array($parent);
+
+                if (isset($result[$func]['files'])) {
+                    foreach ($result[$func]['files'] as $key => $val) {
+                        $new_key = strtr($key, ['\u002e' => '.']);
+                        if ($new_key != $key) {
+                            unset($result[$func]['files'][$key]);
+                            $result[$func]['files'][$new_key] = $val;
+                        }
+                    }
+                }
             }
 
             // Build the indexed data.

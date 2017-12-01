@@ -4,22 +4,22 @@ if (empty($_apm_export)) {
     return false;
 }
 
-// 新版的mongokey中不能包含`.`
-foreach($_apm_export['profile'] as $key => &$value) {
-    if (!empty($value['files'])){
-        foreach ($value['files'] as $k => $v){
-            $nk = strtr($k, ['.'=> '_']);
-            if ($nk != $k){
+// fix MongoDB dot (.) in key name
+foreach ($_apm_export['profile'] as $key => &$value) {
+    if (!empty($value['files'])) {
+        foreach ($value['files'] as $k => $v) {
+            $new_key = strtr($k, ['.' => '\u002e']);
+            if ($new_key != $k) {
                 unset($value['files'][$k]);
-                $value['files'][$nk] = $v;
+                $value['files'][$new_key] = $v;
             }
         }
     }
 
-    $nkey = strtr($key, ['.' => '_']);
-    if ($nkey != $key){
+    $new_key = strtr($key, ['.' => '\u002e']);
+    if ($new_key != $key) {
         unset($_apm_export['profile'][$key]);
-        $_apm_export['profile'][$nkey] = $value;
+        $_apm_export['profile'][$new_key] = $value;
     }
 }
 
