@@ -41,11 +41,14 @@ extern zend_module_entry xhprof_apm_module_entry;
  */
 
 /* XHProf_APM version                           */
-#define XHPROF_APM_VERSION       "0.1.0"
+#define XHPROF_APM_VERSION       "0.2.0"
 
 /* Fictitious function name to represent top of the call tree. The paranthesis
  * in the name is to ensure we don't conflict with user function names.  */
 #define ROOT_SYMBOL                "main()"
+
+/* Size of a temp scratch buffer            */
+#define SCRATCH_BUF_LEN            512
 
 /* Hierarchical profiling flags.
  *
@@ -225,8 +228,6 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     /* freelist of hp_entry_t chunks for reuse... */
     hp_entry_t      *entry_free_list;
 
-    double timebase_factor;
-
     /* XHProf flags */
     uint32 xhprof_flags;
 
@@ -319,7 +320,6 @@ static void hp_free_the_free_list(TSRMLS_D);
 static hp_entry_t *hp_fast_alloc_hprof_entry(TSRMLS_D);
 static void hp_fast_free_hprof_entry(hp_entry_t *p TSRMLS_DC);
 static inline uint8 hp_inline_hash(char *str);
-static double get_timebase_factor();
 
 static inline zval *hp_zval_at_key(char *key, zval *values);
 static inline char **hp_strings_in_zval(zval *values);
