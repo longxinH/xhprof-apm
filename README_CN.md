@@ -15,10 +15,11 @@ xhprof-apm 是一款非侵入式监控平台，基于[xhprof](https://github.com
 ![symbol_2](https://github.com/longxinH/xhprof-apm/blob/master/docs/imgs/symbol_2.jpeg)
 
 ### 配置要求
- * PHP 5.3 +
+ * PHP 5.3 - PHP 5.6
  * MongoDB 3.0.0 +
  * MongoDB Extension 1.2.6 +
  * 不支持CLI模式
+ * 与xhprof冲突
  
 ## 模块
 
@@ -164,7 +165,6 @@ composer install
 
 ### 存储方式
 推荐使用MongoDB
- * [Mysql](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#mysql)
  * [MongoDB](https://github.com/longxinH/xhprof-apm/blob/master/README_CN.md#mongodb)
 
 ### MongoDB
@@ -178,22 +178,6 @@ $ mongo
 > db.results.createIndex({'wt' : -1})
 > db.results.createIndex({'cpu' : -1})
 > db.results.createIndex({'mu' : -1})
-```
-
-### Mysql
-1. 创建数据表
-```
-CREATE TABLE `xhprof_apm` (
-    `id` int(11) NOT NULL AUTO_INCREMENT,
-    `export` text NOT NULL,
-    `wt` int(11) NOT NULL,
-    `cpu` int(11) NOT NULL,
-    `mu` int(11) NOT NULL,
-    `date` int(11) NOT NULL,
-    `url` text NOT NULL,
-    `simple_url` varchar(255) NOT NULL DEFAULT '',
-    PRIMARY KEY (`id`)
-  ) ENGINE=MyISAM DEFAULT CHARSET=utf8
 ```
 
 ### Nginx
