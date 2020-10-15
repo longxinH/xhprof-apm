@@ -1440,6 +1440,7 @@ int hp_rshutdown_php(zval *data, int debug)
     if (EXPECTED(op_array)) {
         zend_string *var_name;
         zval export_data, result;
+        uint32_t call_info;
 
         ZVAL_UNDEF(&result);
         array_init(&export_data);
@@ -1453,12 +1454,21 @@ int hp_rshutdown_php(zval *data, int debug)
 
         zend_hash_add_new(symbol_table, var_name, &export_data);
 
-        call = zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_CODE
-#if PHP_VERSION_ID >= 70100
-           | ZEND_CALL_HAS_SYMBOL_TABLE
+        zend_function *func = (zend_function *)op_array;
+
+#if PHP_VERSION_ID >= 70400
+        call_info = ZEND_CALL_HAS_THIS | ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
+#elif PHP_VERSION_ID >= 70100
+        call_info = ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
+#else
+	    call_info = ZEND_CALL_NESTED_CODE;
 #endif
-           ,
-           (zend_function*)op_array, 0, op_array->scope, NULL);
+
+#if PHP_VERSION_ID < 70400
+        call = zend_vm_stack_push_call_frame(call_info, func, 0, op_array->scope, NULL);
+#else
+        call = zend_vm_stack_push_call_frame(call_info, func, 0, NULL);
+#endif
 
         call->symbol_table = symbol_table;
 
@@ -1649,10 +1659,9 @@ PHP_RINIT_FUNCTION(xhprof_apm)
                 return SUCCESS;
             }
 
-            long number = php_rand();
-            RAND_RANGE(number, 0, 100, PHP_RAND_MAX);
+            zend_long randval = php_mt_rand_range(0, 100);
 
-            if (sample_rate < number) {
+            if (sample_rate < randval) {
                 zval_ptr_dtor(&configs);
                 return SUCCESS;
             }

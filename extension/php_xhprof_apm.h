@@ -209,7 +209,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     int debug;
 
     /* counter table indexed by hash value of function names. */
-    uint8  func_hash_counters[256];
+    zend_ulong func_hash_counters[APM_FUNC_HASH_COUNTERS_SIZE];
 
     HashTable *trace_callbacks;
 
