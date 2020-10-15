@@ -1,7 +1,5 @@
 xhprof-apm
 ====== 
-[PHP7版本](https://github.com/longxinH/xhprof-apm/tree/php7)
-
 xhprof-apm 是一款非侵入式监控平台，基于[xhprof](https://github.com/phacility/xhprof)和[xhgui](https://github.com/perftools/xhgui)。可以方便的查看PHP执行过程，调用次数，CPU和内存使用情况。部署简单方便，不需要修改线上代码，即可开启性能分析。
 
 部署在开发环境可以方便调试，部署在线上服务器可以快速定位线上性能问题。
@@ -15,11 +13,10 @@ xhprof-apm 是一款非侵入式监控平台，基于[xhprof](https://github.com
 ![symbol_2](https://github.com/longxinH/xhprof-apm/blob/master/docs/imgs/symbol_2.jpeg)
 
 ### 配置要求
- * PHP 5.3 - PHP 5.6
+ * PHP 7.0 +
  * MongoDB 3.0.0 +
  * MongoDB Extension 1.2.6 +
  * 不支持CLI模式
- * 与xhprof冲突
  
 ## 模块
 
@@ -43,9 +40,11 @@ git clone https://github.com/longxinH/xhprof-apm.git
 
 ### 扩展安装
 ```
-cd xhprof-apm/extension/
-/path/to/php5/bin/phpize
-./configure --with-php-config=/path/to/php5/bin/php-config
+cd xhprof-apm
+git checkout origin/php7
+cd extension/
+/path/to/php7/bin/phpize
+./configure --with-php-config=/path/to/php7/bin/php-config
 make && sudo make install
 ```
 
@@ -85,7 +84,6 @@ file_put_contents('/tmp/xhprof_apm.log', file_get_contents("php://input") . PHP_
 APM_FLAGS_NO_BUILTINS (int) 使得跳过所有内置（内部）函数
 APM_FLAGS_CPU (int) 使输出的性能数据中添加 CPU 数据
 APM_FLAGS_MEMORY (int) 使输出的性能数据中添加内存数据
-APM_FLAGS_FILES (int) 记录文件调用栈
 ```
 
 ### 数据格式
@@ -107,22 +105,15 @@ array {
 }
 ```
 ### 性能分析数据格式
-需要在apm.ini配置 `APM_FLAGS_FILES` 才能记录 `files` 栈
 ```php
 array {
-    [函数名]=>
+    [函数名] =>
       array {
         ["ct"] => 调用次数 (int)
         ["wt"] => 函数方法执行的时间耗时 (int)
         ["cpu"] => 函数方法执行消耗的cpu时间 (int)
         ["mu"] => 函数方法所使用的内存 (int)
         ["pmu"] => 函数方法所使用的内存峰值 (int)
-        ["files"] => array {
-          [文件名] =>
-            array {
-              [行号] => 调用次数 (int)
-            }
-        }
     }
 }
 ```

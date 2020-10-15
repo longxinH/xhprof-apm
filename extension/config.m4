@@ -25,10 +25,19 @@ if test "$PHP_XHPROF_APM" != "no"; then
   IFS=$ac_IFS
   apm_php_version=`expr [$]1 \* 1000000 + [$]2 \* 1000 + [$]3`
 
-  if test "$apm_php_version" -le "5003000"; then
-    AC_MSG_ERROR([You need at least PHP 5.3.0 to be able to use this version of Xhprof-apm. PHP $php_version found])
+  if test "$apm_php_version" -le "7000000"; then
+    AC_MSG_ERROR([You need at least PHP 7.0.0 to be able to use this version of Xhprof-apm. PHP $php_version found])
   else
     AC_MSG_RESULT([$php_version, ok])
+  fi
+
+  AC_MSG_CHECKING([for PCRE includes])
+
+  if test -f $phpincludedir/ext/pcre/php_pcre.h; then
+    AC_DEFINE([HAVE_PCRE], 1, [have pcre headers])
+    AC_MSG_RESULT([yes])
+  else
+    AC_MSG_RESULT([no])
   fi
 
   PHP_NEW_EXTENSION(xhprof_apm, xhprof_apm.c, $ext_shared)

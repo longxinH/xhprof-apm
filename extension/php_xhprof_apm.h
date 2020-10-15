@@ -1,20 +1,20 @@
 /*
- *  Copyright (c) 2009 Facebook
- *  Copyright (c) 2017 Xinhui Long
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- */
+  +----------------------------------------------------------------------+
+  | Xhprof APM                                                           |
+  +----------------------------------------------------------------------+
+  | Copyright (c) 2013-2013 The PHP Group                                |
+  +----------------------------------------------------------------------+
+  | This source file is subject to version 3.01 of the PHP license,      |
+  | that is bundled with this package in the file LICENSE, and is        |
+  | available through the world-wide-web at the following url:           |
+  | http://www.php.net/license/3_01.txt                                  |
+  | If you did not receive a copy of the PHP license and are unable to   |
+  | obtain it through the world-wide-web, please send a note to          |
+  | license@php.net so we can mail you a copy immediately.               |
+  +----------------------------------------------------------------------+
+  | Author: Xinhui Long <longxinhui@php.net>                             |
+  +----------------------------------------------------------------------+
+*/
 
 #ifndef PHP_XHPROF_APM_H
 #define PHP_XHPROF_APM_H
@@ -41,14 +41,16 @@ extern zend_module_entry xhprof_apm_module_entry;
  */
 
 /* XHProf_APM version                           */
-#define XHPROF_APM_VERSION       "0.2.0"
+#define XHPROF_APM_VERSION       "1.0.0"
+
+#define APM_FUNC_HASH_COUNTERS_SIZE   1024
+
+/* Size of a temp scratch buffer            */
+#define SCRATCH_BUF_LEN            512
 
 /* Fictitious function name to represent top of the call tree. The paranthesis
  * in the name is to ensure we don't conflict with user function names.  */
 #define ROOT_SYMBOL                "main()"
-
-/* Size of a temp scratch buffer            */
-#define SCRATCH_BUF_LEN            512
 
 /* Hierarchical profiling flags.
  *
@@ -59,54 +61,29 @@ extern zend_module_entry xhprof_apm_module_entry;
 #define APM_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
 #define APM_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
 #define APM_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
-#define APM_FLAGS_FILES         0x0008
 
 /* Constant for ignoring functions, transparent to hierarchical profile */
 #define APM_MAX_IGNORED_FUNCTIONS  256
-#define APM_IGNORED_FUNCTION_FILTER_SIZE                           \
-               ((APM_MAX_IGNORED_FUNCTIONS + 7)/8)
 
-#if PHP_VERSION_ID > 50500
 #define APM_STORE_ZEND_HANDLE() \
-		/* Replace zend_compile with our proxy */ \
-        _zend_compile_file = zend_compile_file; \
-        zend_compile_file  = hp_compile_file; \
-        /* Replace zend_compile_string with our proxy */ \
-        _zend_compile_string = zend_compile_string; \
-        zend_compile_string = hp_compile_string; \
-        /* Replace zend_execute with our proxy */ \
-        _zend_execute_ex = zend_execute_ex; \
-        zend_execute_ex  = hp_execute_ex; \
-        /* Replace zend_execute_internal with our proxy */  \
-        _zend_execute_internal = zend_execute_internal;  \
-        zend_execute_internal = hp_execute_internal;
+	/* Replace zend_compile with our proxy */ \
+    _zend_compile_file = zend_compile_file; \
+    zend_compile_file  = hp_compile_file; \
+    /* Replace zend_compile_string with our proxy */ \
+    _zend_compile_string = zend_compile_string; \
+    zend_compile_string = hp_compile_string; \
+    /* Replace zend_execute with our proxy */ \
+    _zend_execute_ex = zend_execute_ex; \
+    zend_execute_ex  = hp_execute_ex; \
+    /* Replace zend_execute_internal with our proxy */ \
+    _zend_execute_internal = zend_execute_internal; \
+    zend_execute_internal = hp_execute_internal;
+
 #define APM_RESTORE_ZEND_HANDLE() \
 		zend_execute_ex = _zend_execute_ex; \
 		zend_execute_internal = _zend_execute_internal; \
 		zend_compile_file     = _zend_compile_file; \
 		zend_compile_string   = _zend_compile_string;
-#else
-
-#define APM_STORE_ZEND_HANDLE() \
-		/* Replace zend_compile with our proxy */ \
-        _zend_compile_file = zend_compile_file; \
-        zend_compile_file  = hp_compile_file; \
-        /* Replace zend_compile_string with our proxy */ \
-        _zend_compile_string = zend_compile_string; \
-        zend_compile_string = hp_compile_string; \
-        /* Replace zend_execute with our proxy */ \
-        _zend_execute = zend_execute; \
-        zend_execute  = hp_execute; \
-        /* Replace zend_execute_internal with our proxy */  \
-        _zend_execute_internal = zend_execute_internal;  \
-        zend_execute_internal = hp_execute_internal;
-#define APM_RESTORE_ZEND_HANDLE() \
-        /* Remove proxies, restore the originals */ \
-		zend_execute = _zend_execute; \
-		zend_execute_internal = _zend_execute_internal; \
-		zend_compile_file     = _zend_compile_file; \
-		zend_compile_string   = _zend_compile_string;
-#endif
 
 /*
  * Start profiling - called just before calling the actual function
@@ -119,17 +96,17 @@ extern zend_module_entry xhprof_apm_module_entry;
 #define BEGIN_PROFILING(entries, symbol, profile_curr, execute_data)         \
   do {                                                                       \
     /* Use a hash code to filter most of the string comparisons. */          \
-    uint8 hash_code  = hp_inline_hash(symbol);                               \
-    profile_curr = !hp_ignore_entry_work(hash_code, symbol TSRMLS_CC);       \
+    zend_ulong hash_code = ZSTR_HASH(symbol);                                \
+    profile_curr = !hp_ignore_entry_work(hash_code, symbol);                 \
     if (profile_curr) {                                                      \
         if (execute_data != NULL) {                                          \
-            symbol = hp_get_trace_callback(symbol, execute_data TSRMLS_CC);  \
+            symbol = hp_get_trace_callback(symbol, execute_data);            \
         }                                                                    \
-        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry(TSRMLS_C);         \
-        (cur_entry)->hash_code = hash_code;                                  \
+        hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();                 \
+        (cur_entry)->hash_code = hash_code % APM_FUNC_HASH_COUNTERS_SIZE; \
         (cur_entry)->name_hprof = symbol;                                    \
         (cur_entry)->prev_hprof = (*(entries));                              \
-        hp_mode_hier_beginfn_cb((entries), (cur_entry), execute_data TSRMLS_CC);           \
+        hp_mode_hier_beginfn_cb((entries), (cur_entry));                     \
         /* Update entries linked list */                                     \
         (*(entries)) = (cur_entry);                                          \
     }                                                                        \
@@ -151,15 +128,15 @@ extern zend_module_entry xhprof_apm_module_entry;
       /* NOTE(cjiang): we want to call this 'end_fn_cb' before */       \
       /* 'hp_mode_common_endfn' to avoid including the time in */       \
       /* 'hp_mode_common_endfn' in the profiling results.      */       \
-      hp_mode_hier_endfn_cb((entries) TSRMLS_CC);                       \
+      hp_mode_hier_endfn_cb((entries));                       \
       cur_entry = (*(entries));                                         \
       /* Free top entry and update entries linked list */               \
       (*(entries)) = (*(entries))->prev_hprof;                          \
-      hp_fast_free_hprof_entry(cur_entry TSRMLS_CC);                              \
+      hp_fast_free_hprof_entry(cur_entry);                              \
     }                                                                   \
   } while (0)
 
-#define register_trace_callback(function_name, cb) zend_hash_update(APM_G(trace_callbacks), function_name, sizeof(function_name), &cb, sizeof(hp_trace_callback*), NULL);
+#define register_trace_callback(function_name, cb) zend_hash_str_update_mem(APM_G(trace_callbacks), function_name, sizeof(function_name) - 1, &cb, sizeof(hp_trace_callback));
 
 
 /**
@@ -167,14 +144,12 @@ extern zend_module_entry xhprof_apm_module_entry;
  * GLOBAL DATATYPES AND TYPEDEFS
  * *****************************
  */
-#if !defined(uint64)
-typedef unsigned long long uint64;
-#endif
 #if !defined(uint32)
-typedef unsigned int uint32;
+    typedef unsigned int uint32;
 #endif
+
 #if !defined(uint8)
-typedef unsigned char uint8;
+    typedef unsigned char uint8;
 #endif
 
 /* XHProf maintains a stack of entries being profiled. The memory for the entry
@@ -185,24 +160,22 @@ typedef unsigned char uint8;
  * profile operation, recursion depth, and the name of the function being
  * profiled. */
 typedef struct hp_entry_t {
-    char                   *name_hprof;                       /* function name */
-    int                    rlvl_hprof;        /* recursion level for function */
-    uint64                 tsc_start;         /* start value for TSC counter  */
-    uint64                 cpu_start;
-    long int               mu_start_hprof;                    /* memory usage */
-    long int               pmu_start_hprof;              /* peak memory usage */
-    struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
-    uint8                  hash_code;     /* hash_code for the function name  */
-    char                   *filename;
-    int                    lineno;
+    struct hp_entry_t       *prev_hprof;    /* ptr to prev entry being profiled */
+    zend_string             *name_hprof;                       /* function name */
+    int                     rlvl_hprof;        /* recursion level for function */
+    zend_ulong              tsc_start;
+    zend_ulong              cpu_start;/* start value for TSC counter  */
+    long int                mu_start_hprof;                    /* memory usage */
+    long int                pmu_start_hprof;              /* peak memory usage */
+    zend_ulong              hash_code;     /* hash_code for the function name  */
 } hp_entry_t;
 
-typedef struct hp_ignored_function_map {
-    char **names;
-    uint8 filter[APM_MAX_IGNORED_FUNCTIONS];
-} hp_ignored_function_map;
+typedef struct hp_ignored_functions {
+    zend_string **names;
+    zend_ulong filter[APM_MAX_IGNORED_FUNCTIONS];
+} hp_ignored_functions;
 
-typedef char* (*hp_trace_callback)(char *symbol, zend_execute_data *data TSRMLS_DC);
+typedef zend_string* (*hp_trace_callback) (zend_string *symbol, zend_execute_data *data);
 
 /* Xhprof's global state.
  *
@@ -220,7 +193,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     int              ever_enabled;
 
     /* Holds all the xhprof statistics */
-    zval            *stats_count;
+    zval            stats_count;
 
     /* Top of the profile stack */
     hp_entry_t      *entries;
@@ -231,7 +204,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     /* XHProf flags */
     uint32 xhprof_flags;
 
-    char *root;
+    zend_string *root;
 
     int debug;
 
@@ -241,7 +214,7 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     HashTable *trace_callbacks;
 
     /* Table of ignored function names and their filter */
-    hp_ignored_function_map *ignored_functions;
+    hp_ignored_functions *ignored_functions;
 
 ZEND_END_MODULE_GLOBALS(apm)
 
@@ -268,36 +241,28 @@ PHP_GINIT_FUNCTION(apm);
 #define APM_G(v) (apm_globals.v)
 #endif
 
+extern ZEND_DECLARE_MODULE_GLOBALS(apm);
+
 /**
  * ***********************
  * GLOBAL STATIC VARIABLES
  * ***********************
  */
-#if PHP_VERSION_ID < 50500
 /* Pointer to the original execute function */
-static ZEND_DLEXPORT void (*_zend_execute) (zend_op_array *ops TSRMLS_DC);
+static void (*_zend_execute_ex) (zend_execute_data *execute_data);
+ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data);
 
 /* Pointer to the origianl execute_internal function */
-static ZEND_DLEXPORT void (*_zend_execute_internal) (zend_execute_data *data, int ret TSRMLS_DC);
-#else
-/* Pointer to the original execute function */
-static void (*_zend_execute_ex) (zend_execute_data *execute_data TSRMLS_DC);
-
-/* Pointer to the origianl execute_internal function */
-static void (*_zend_execute_internal) (zend_execute_data *data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
-#endif
+static void (*_zend_execute_internal) (zend_execute_data *data, zval *return_value);
+ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *return_value);
 
 /* Pointer to the original compile function */
-static zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type TSRMLS_DC);
+static zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type);
+ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle, int type);
 
 /* Pointer to the original compile string function (used by eval) */
-static zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename TSRMLS_DC);
-
-ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
-ZEND_DLEXPORT zend_op_array* hp_compile_string(zval *source_string, char *filename TSRMLS_DC);
-
-ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC);
-ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
+static zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename);
+ZEND_DLEXPORT zend_op_array* hp_compile_string(zval *source_string, char *filename);
 
 /* Bloom filter for function names to be ignored */
 #define INDEX_2_BYTE(index)  (index >> 3)
@@ -310,27 +275,28 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, struct _
  */
 static void hp_register_constants(INIT_FUNC_ARGS);
 
-static void hp_begin(long xhprof_flags TSRMLS_DC);
-static void hp_stop(TSRMLS_D);
-static void hp_end(TSRMLS_D);
+static void hp_begin(long xhprof_flags);
+static void hp_stop();
+static void hp_end();
 
-static inline uint64 cycle_timer();
+static inline zend_ulong cycle_timer();
 
-static void hp_free_the_free_list(TSRMLS_D);
-static hp_entry_t *hp_fast_alloc_hprof_entry(TSRMLS_D);
-static void hp_fast_free_hprof_entry(hp_entry_t *p TSRMLS_DC);
-static inline uint8 hp_inline_hash(char *str);
+static void hp_free_the_free_list();
+static hp_entry_t *hp_fast_alloc_hprof_entry();
+static void hp_fast_free_hprof_entry(hp_entry_t *p);
 
 static inline zval *hp_zval_at_key(char *key, zval *values);
-static inline char **hp_strings_in_zval(zval *values);
-static inline void hp_array_del(char **name_array);
-static void hp_clean_profiler_options_state(TSRMLS_D);
+static inline void hp_array_del(zend_string **names);
+static void hp_clean_profiler_options_state();
 
-static char *hp_get_trace_callback(char *symbol, zend_execute_data *data TSRMLS_DC);
-static void hp_init_trace_callbacks(TSRMLS_D);
+zend_string *hp_get_trace_callback(zend_string *symbol, zend_execute_data *data);
+static void hp_init_trace_callbacks();
 
-static hp_ignored_function_map *hp_ignored_functions_init(char **names);
+static hp_ignored_functions *hp_ignored_functions_init(zval *values);
 
-extern ZEND_DECLARE_MODULE_GLOBALS(apm);
+static zval *hp_request_query_ex(uint type, zend_bool fetch_type, void *name, size_t len);
+
+#define hp_request_query(type, name)  hp_request_query_ex((type), 1, (name), 0)
+#define hp_request_query_str(type, name, len)  hp_request_query_ex((type), 0, (name), (len))
 
 #endif	/* PHP_XHPROF_APM_H */
