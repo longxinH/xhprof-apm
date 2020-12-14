@@ -537,7 +537,7 @@ void hp_inc_count(zval *counts, char *name, long count)
 static inline zend_ulong cycle_timer()
 {
 #if defined(__APPLE__) && defined(__MACH__)
-    return mach_absolute_time() / XHPROF_G(timebase_conversion);
+    return mach_absolute_time() / APM_G(timebase_conversion);
 #else
     struct timespec s;
     clock_gettime(CLOCK_MONOTONIC, &s);

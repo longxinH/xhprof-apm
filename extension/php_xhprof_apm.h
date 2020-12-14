@@ -216,6 +216,8 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     /* Table of ignored function names and their filter */
     hp_ignored_functions *ignored_functions;
 
+    double timebase_conversion;
+
 ZEND_END_MODULE_GLOBALS(apm)
 
 PHP_MINIT_FUNCTION(xhprof_apm);
@@ -275,7 +277,7 @@ ZEND_DLEXPORT zend_op_array* hp_compile_string(zval *source_string, char *filena
  */
 static void hp_register_constants(INIT_FUNC_ARGS);
 
-static void hp_begin(long xhprof_flags);
+static void hp_begin(zend_long xhprof_flags);
 static void hp_stop();
 static void hp_end();
 
