@@ -41,7 +41,7 @@ git clone https://github.com/longxinH/xhprof-apm.git
 ### 扩展安装
 ```
 cd xhprof-apm
-git checkout origin/php7
+git checkout origin/master
 cd extension/
 /path/to/php7/bin/phpize
 ./configure --with-php-config=/path/to/php7/bin/php-config
