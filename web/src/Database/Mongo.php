@@ -69,6 +69,24 @@ class Mongo implements DbInterface
         return current($this->_format($cursor));
     }
 
+    /**
+     * 删除的操作
+     * @param string $id 删除的id
+     * @return \MongoDB\Driver\WriteResult
+     * @author zengye
+     * @since 20210729 10:28
+     */
+    public function Del($id)
+    {
+
+        $bulk = new \MongoDB\Driver\BulkWrite;
+        $filter = ['_id' => new ObjectId($id)];
+        $bulk->delete($filter, ['limit' => 0]);   // limit 为 0 时，删除所有匹配数据
+        $writeConcern = new \MongoDB\Driver\WriteConcern(\MongoDB\Driver\WriteConcern::MAJORITY, 1000);
+        $result = $this->_manager->executeBulkWrite($this->_dbname(), $bulk, $writeConcern);
+        return $result;
+    }
+
     public function findAll(array $conditions = [])
     {
         //
