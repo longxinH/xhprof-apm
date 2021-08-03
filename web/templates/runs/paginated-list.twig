@@ -8,6 +8,13 @@
                 <th>&nbsp;</th>
                 {% endif %}
                 <th>
+                    <div class="checkbox">
+                    <label id="all-checkbox">
+                        全选<input name="ids-all" type="checkbox">
+                    </label>
+                </div>
+                </th>
+                <th>
                     方法
                 </th>
                 <th>请求地址</th>
@@ -34,6 +41,11 @@
                         {{ helpers.sort_link('内存峰值', base_url, 'pmu', paging, search) }}
                     </span>
                 </th>
+                <th class="right">
+                    <span class="tip" title="操作">
+                        操作
+                    </span>
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -47,18 +59,35 @@
             </td>
             {% endif %}
             <td>
-              <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
-                {{ result.meta('SERVER.REQUEST_METHOD') }}{% if result.data('debug') %} / DEBUG{% endif %}
-              </a>
+                <div class="checkbox">
+                    <label>
+                        <input name="ids" type="checkbox" data-id={{result.id}}>
+                        <span title={{ result.id }}>{{ result.id }}</span>
+                    </label>
+                </div>
+            </td>
+            <td>
+                <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
+                    {{ result.meta('SERVER.REQUEST_METHOD') }} {{ result.meta.method }}
+                    {% if result.data('debug') %} / DEBUG{% endif %}
+                </a>
             </td>
             <td>
                 {% set addr = result.meta.url %}
+                {% set url = {'id': result.id|trim } %}
+                {% if addr is empty %}
+                    {% set addr = '脚本执行' %}
+                    {% if result.meta.method == 'cli' %}
+                        {% set addr = [result.meta.server.PWD , result.meta.server.argv|join(' ')] | join('/') %}
+                    {% endif %}
+                {% endif %}
                 {{ helpers.tip_link(
                     addr,
                     50,
-                    'url.view',
-                    {'url': result.meta.simple_url}
+                    'run.view',
+                    url
                 ) }}
+                &nbsp;<i class="icon-file icon-copy btn-copy" data-title="{{ addr }}"></i>
             </td>
             <td>
               <a href="{{ path_for('run.view', {}, {'id': result.id|trim }) }}">
@@ -69,6 +98,9 @@
             <td class="right">{{ attribute(result.profile, 'main()').cpu |as_time }}</td>
             <td class="right">{{ attribute(result.profile, 'main()').mu |as_bytes }}</td>
             <td class="right">{{ attribute(result.profile, 'main()').pmu |as_bytes }}</td>
+            <td class="right">
+                <button class="del btn btn-primary" data-id={{result.id}}>删除</button>
+            </td>
         </tr>
         {% else %}
         <tr>

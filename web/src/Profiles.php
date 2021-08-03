@@ -90,4 +90,23 @@ class Profiles
 
         return $results;
     }
+
+    /**
+     * 封装删除操作
+     * @param array $ids 数组 多个id
+     * @return int
+     * @author zengye
+     * @since 20210729 10:27
+     */
+    public function drop($ids) {
+        $u_limit = 0;
+        foreach ($ids as $id) {
+            if (!$id) {
+                continue;
+            }
+            $row = $this->_db->Del($id);
+            $u_limit++; 
+        }
+        return $u_limit;
+    }
 }

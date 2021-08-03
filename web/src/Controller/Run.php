@@ -285,4 +285,29 @@ class Run extends \Controller
         $this->render('runs/compare.twig', $tpl_var);
     }
 
+    /**
+     * 控制器 删除的操作
+     * 例： ?run/del?id=值1,值2  英文逗号切割
+     * @author zengye
+     * @since 20210729 10:29
+     */
+    public function del() {
+        $id = $this->_request->getQueryParam('id', 0);
+        $data = [
+            'code' => 0,
+            'message' => 'id序号必须填写'
+        ];
+        if (!$id) {
+            exit(json_encode($data));
+        }
+        $ids = explode(',', $id);
+        
+        if ($limit = $this->_profiles->drop($ids)) {
+            $data['code'] = 1;
+            $data['message'] = "删除成功，影响记录：$limit 条";
+        } else {
+            $data['message'] = "删除失败，请刷新后重新尝试";
+        }
+        exit(json_encode($data));
+    }
 }

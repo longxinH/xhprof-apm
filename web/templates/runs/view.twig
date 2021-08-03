@@ -18,7 +18,7 @@
                     40,
                     'url.view',
                     {'url': result.meta.simple_url}
-                ) }}</li>
+                ) }} <i class="icon-file icon-copy btn-copy" data-title="{{ addr }}"></i></li>
             <li><strong>请求时间</strong>&nbsp;&nbsp;{{ result.meta('request_date')|date(date_format) }}</li>
             <li><strong>ID</strong>&nbsp;&nbsp;{{ result.id }}</li>
             <li><strong>执行时间</strong>&nbsp;&nbsp;{{ attribute(result.profile, 'main()').wt |as_time }}</li>
@@ -118,7 +118,7 @@
                 45,
                 'run.symbol',
                 {'id': result.id|trim, 'symbol': key}
-            ) }}
+            ) }} &nbsp;<i class="icon-file icon-copy btn-copy" data-title="{{ key }}"></i>
         </td>
         {% if stack %}
             <td class="right">
