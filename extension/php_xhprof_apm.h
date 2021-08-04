@@ -41,7 +41,7 @@ extern zend_module_entry xhprof_apm_module_entry;
  */
 
 /* XHProf_APM version                           */
-#define XHPROF_APM_VERSION       "1.0.0"
+#define XHPROF_APM_VERSION       "1.1.0"
 
 #define APM_FUNC_HASH_COUNTERS_SIZE   1024
 
@@ -207,6 +207,8 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
     zend_string *root;
 
     int debug;
+
+    int scratch_buf;
 
     /* counter table indexed by hash value of function names. */
     zend_ulong func_hash_counters[APM_FUNC_HASH_COUNTERS_SIZE];

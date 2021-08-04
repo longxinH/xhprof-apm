@@ -130,6 +130,7 @@ array {
 |apm.ignored  | array的可选选项 |忽略性能分析中的某些函数 |
 |apm.rate  | 0 - 100 |频率设置，按照0到100的百分比，如果auto设为0，此选项不会生效，如设置大于100会每次开启，等于0则不开启。当不需要此选项时，请注释掉|
 |apm.debug  | GET参数名 |此选项可通过特定的GET参数开启性能分析，注释即可关闭。如设置auto = 0，同时GET参数中带有设置值 (例如 http://localhost/?apm_debug) ，也会开启性能分析，优先级高于auto。|
+|apm.scratch_buf  | 函数长度缓冲区大小 |默认值：512 |
 
 ```
 apm.auto = 1
@@ -146,6 +147,7 @@ apm.ignored[] = md5
 ;apm.rate = 30
 
 apm.debug = apm_debug
+apm.scratch_buf = 1024
 ```
 
 ## 日志管理界面

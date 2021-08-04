@@ -98,6 +98,7 @@ PHP_GINIT_FUNCTION(apm)
     apm_globals->trace_callbacks = NULL;
     apm_globals->ignored_functions = NULL;
 	apm_globals->debug = 0;
+	apm_globals->scratch_buf = SCRATCH_BUF_LEN;
 
     ZVAL_UNDEF(&apm_globals->stats_count);
 
@@ -294,6 +295,7 @@ void hp_clean_profiler_state()
 	APM_G(entries) = NULL;
 	APM_G(ever_enabled) = 0;
 	APM_G(debug) = 0;
+	APM_G(scratch_buf) = SCRATCH_BUF_LEN;
 
     hp_clean_profiler_options_state();
 }
@@ -602,11 +604,11 @@ void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t *current)
 void hp_mode_hier_endfn_cb(hp_entry_t **entries)
 {
 	hp_entry_t   *top = (*entries);
-	zval            *counts, files_stack;
-    char            symbol[SCRATCH_BUF_LEN];
-	long int        mu_end;
-	long int        pmu_end;
-    double          wt, cpu;
+	zval         *counts, files_stack;
+    char         symbol[APM_G(scratch_buf)];
+	long int     mu_end;
+	long int     pmu_end;
+    double       wt, cpu;
 
 	/* Get end tsc counter */
 	wt = cycle_timer() - top->tsc_start;
@@ -1494,6 +1496,7 @@ int hp_rshutdown_php(zval *data, int debug)
 
 size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)
 {
+    return 0;
 }
 
 int hp_rshutdown_curl(zval *data, int debug)
@@ -1641,6 +1644,12 @@ PHP_RINIT_FUNCTION(xhprof_apm)
             APM_G(debug) = 1;
             enable = 1;
         }
+    }
+
+    pzval = hp_zval_at_key("scratch_buf", apm_config);
+    if (pzval) {
+        convert_to_long(pzval);
+        APM_G(scratch_buf) = Z_LVAL_P(pzval);
     }
 
     if (!enable) {
