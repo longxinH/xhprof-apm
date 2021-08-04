@@ -8,6 +8,7 @@
     <link href="{{ base_url() }}/css/datepicker.css" rel="stylesheet" media="screen">
     <link href="{{ base_url() }}/css/xhgui.css" rel="stylesheet" media="screen">
     {% block head '' %}
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 </head>
 <body>
     <div class="navbar navbar-static-top">
@@ -56,7 +57,27 @@
     <script src="{{ base_url() }}/js/jquery.stickytableheaders.js"></script>
     <script src="{{ base_url() }}/js/xhgui-charts.js"></script>
     <script src="{{ base_url() }}/js/xhgui.js"></script>
-
+    <script src="{{ base_url() }}/js/layer/layer.js"></script>
     {% block jsfoot '' %}
+
+    <input id="inputCopy" style="position: absolute;top:0;left:0;width: 1px;opacity: 0;" type="text">
+
+    <script>
+        $(function () {
+            // 复制按钮
+            $(".btn-copy").click(function () {
+                copyText($(this).attr('data-title'));
+            })
+
+            // 复制操作
+            function copyText(text) {
+                var input = document.getElementById("inputCopy");
+                input.value = text; // 修改文本框的内容
+                input.select(); // 选中文本
+                document.execCommand("copy"); // 执行浏览器复制命令
+                layer.msg('复制成功', {icon:6})
+            }
+        })
+    </script>
 </body>
 </html>

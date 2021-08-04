@@ -10,6 +10,8 @@
 
 {% if runs|length or has_search %}
     <div class="searchbar clearfix">
+        <button type="btn" class="del-all pull-right btn btn-danger btn-small" style="margin-left:12px;">批量删除</button>
+
         <a href="#" class="pull-right btn btn-small search-expand" title="Show search form">
             <i class="icon-search"></i> 搜索
         </a>
@@ -35,6 +37,60 @@
             </div>
         </form>
     </div>
+    <script>
+    $(function(){
+        // 删除按钮
+        $(".del").click(function(){
+            del($(this).attr('data-id'))
+        })
+
+        // 全选
+        $("#all-checkbox").click(function(){
+            $("input[name='ids']").prop('checked', $(this).find("input")[0].checked)  
+        })
+
+        // 点击全选删除按钮
+        $(".del-all").click(function(){
+            var inputs = $("input[name='ids']:checked");
+            if (!inputs || inputs.length == 0) {
+                return layer.msg("请先选择", {icon: 5});
+            }
+            var ids = [];
+            for(var i = 0; i < inputs.length;i++) {
+                ids.push($(inputs[i]).attr('data-id'));
+            }
+
+            del(ids.join(','))
+        })
+
+        // 删除
+        function del(id){
+
+            //询问框
+            layer.confirm('确定删除所选？', {
+                icon: 5
+            }, function(){
+                layer.msg('删除中', {
+                    icon: 5
+                });
+                $.get('/run/del?id=' + id, function(res){
+                    res =  JSON.parse(res)
+                    layer.msg(res.massage || '成功', {icon: 6})
+                    if (res.code != 1) {
+                        return false;
+                    }
+                    setTimeout(function () {
+                        window.location.href = window.location.href
+                    }, 1200)
+                })
+            }, function(){
+                layer.msg('取消成功', {
+                    icon: 5
+                });
+            });
+        }
+    })
+</script>
 {% endif %}
 
 {# No run data, and no search, must be just getting started #}
